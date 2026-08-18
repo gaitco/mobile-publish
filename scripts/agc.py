@@ -203,7 +203,6 @@ class Agc:
             "privacy URL": bool(info.get("privacyPolicy")),
             "screenshots": len(dm.get("screenShots") or []) >= 3,
             "icon (console only)": bool(lang.get("icon") or dm.get("appIcon")),
-            "compatible devices (console only)": bool(info.get("distributeDeviceTypes")),
         }
         for k, ok in checks.items():
             print(f"  {'OK  ' if ok else 'MISS'} {k}")
@@ -216,6 +215,11 @@ class Agc:
         # invisible to this check but still block review, so name them every time.
         print("Console-only, not checkable here: privacy tags, AI function declaration, "
               "content rating questionnaire, review test account")
+        # Verified against a live submission: an empty distributeDeviceTypes does NOT
+        # block app-submit. Do not promote this to a blocking check — a false blocker
+        # stops releases that would have shipped fine.
+        if not info.get("distributeDeviceTypes"):
+            print("  note: Compatible devices is unset in the console (does not block submit)")
         return not missing
 
     def submit(self, app_id: str, changelog: str = None):

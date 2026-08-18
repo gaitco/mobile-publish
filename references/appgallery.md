@@ -259,6 +259,17 @@ Verified two ways, so don't re-derive it:
 `[{"deviceType":4}]` with `ret.code 0` and **never persists** — readback stays `[]` for every
 shape tried. Accept-and-discard, exactly like the icon. Set Compatible devices in the console.
 
+It does **not**, however, block submission — verified against a live submit that succeeded with
+`distributeDeviceTypes: []`. Do not add it as a blocking readiness check; a false blocker stops
+releases that would have shipped. The genuine blocker chain is only `distCountryList` →
+`ChildType` → `GrandChildType` → `AppIcon`.
+
+### Release states
+
+`app-info.releaseState` is how you confirm a submission actually landed — the transport's exit
+code proves nothing. **7 = draft/editing**, **4 = submitted / under review**. Read it back after
+every submit.
+
 ### Enumerating the real writable surface
 
 Unknown field names return `ret.code 0`, so a successful PUT proves nothing. To find out
