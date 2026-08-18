@@ -1,5 +1,7 @@
 # mobile-publish
 
+![mobile-publish](assets/cover.png)
+
 A [Claude Code](https://claude.com/claude-code) skill that builds and uploads a mobile app to
 **Google Play**, **Huawei AppGallery**, or the **Apple App Store** — one command, no
 per-project configuration.
