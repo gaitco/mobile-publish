@@ -1,0 +1,12 @@
+# Store credentials — never commit these
+agc-service-account.json
+*.p8
+*.pem
+*.key
+*.jks
+*.keystore
+key.properties
+
+__pycache__/
+*.pyc
+.DS_Store

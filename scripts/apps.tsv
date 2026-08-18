@@ -1,0 +1,9 @@
+# Batch manifest for release-all.sh — tab-separated, '#' lines ignored.
+#
+#   <name>	<package-or-appId>	<path-to-apk-or-aab>
+#
+# Column 2 takes either a package name (resolved via the API) or a numeric
+# AppGallery appId. The appId is the FIRST number in the console URL:
+#   .../index.html#/myApp/<appId>/<projectId>
+#
+# example	com.example.app	../example/build/app/outputs/flutter-apk/app-release.apk

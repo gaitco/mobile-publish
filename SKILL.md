@@ -1,0 +1,206 @@
+---
+name: mobile-publish
+description: Build and upload a mobile app to Google Play, Huawei AppGallery, or the Apple App Store — one command, no per-project configuration. Use this whenever the user asks to publish, upload, release, or ship an app, including phrasings like "upload to the stores", "put this on Play", "release the Huawei build", "send a build to TestFlight", "upload the aab/ipa", "push to internal testing", or just "ship this app" from inside a Flutter, Android, or iOS repo — even if they never name a store or these scripts. Also use it when diagnosing store upload failures: HTTP 403 or an empty appid-list from AppGallery, fastlane supply errors, altool authentication failures, signing or provisioning errors, or a store review rejection.
+---
+
+# Publishing a mobile app to a store
+
+Every store release is the same four moves — produce a signed artifact, prove it is the
+*right* signed artifact, push it to a holding area, and hand back the list of things only
+a human in the console can do. What changes per store is the transport and the traps.
+
+## Start here: just publish it
+
+Most of the time the answer is one command, run from anywhere inside the repo:
+
+```bash
+scripts/publish.sh                 # every store this app has a credential for
+scripts/publish.sh --store play    # one store (play | agc | asc)
+scripts/publish.sh --build         # rebuild instead of reusing the existing artifact
+scripts/publish.sh --submit        # also send for review
+```
+
+It discovers the Flutter module, the `applicationId`, the version, the artifact paths, and
+the credentials on its own. **Do not ask the user for a package name, an app ID, a
+credential path, or a store configuration before running it** — those questions are the
+thing this skill exists to eliminate. If a credential really is missing, the script says
+which store it skipped and why; only then is there something to ask about.
+
+Read a store reference when something fails, when the user wants a step this doesn't cover
+(promotion, changelogs, first-time listing), or when you need to explain what happened.
+
+## Credentials live centrally, and are almost certainly already there
+
+| Store | Looked up in order |
+|---|---|
+| AppGallery | `$AGC_KEY_FILE` → `<app>/android/agc-service-account.json` → `~/.config/agc/service-account.json` |
+| Google Play | `$PLAY_STORE_JSON_KEY` → `<app>/android/play-store-key.json` → `~/.config/play/service-account.json` |
+| App Store | `~/.config/asc/config` (`ASC_KEY_ID`, `ASC_ISSUER_ID`) + `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8` |
+
+All three are account-wide: one Play service account reaches every app in the Play Console
+account, one AGC service account reaches every app in the AGC account, and one App Store
+Connect key reaches every app on the Apple team. So a new repo needs **no credential setup
+at all**. Before concluding a credential is missing, check
+the central paths above — and if a repo-local key exists somewhere else, adopt it into the
+central store rather than asking the user to produce a new one.
+
+## The underlying workflow
+
+Read the reference for the target store **after** the shared steps below:
+
+| Store | Reference | Transport |
+|---|---|---|
+| Huawei AppGallery | `references/appgallery.md` | `scripts/agc.py` (bundled) |
+| Google Play | `references/play.md` | the repo's fastlane lanes, else `fastlane supply` |
+| Apple App Store | `references/appstore.md` | `xcrun altool` (needs macOS + Xcode) |
+
+**Check the repo for existing publishing setup before reaching for these.** An
+`android/fastlane/Appfile`, a `Fastfile`, an `agc-service-account.json`, or a runbook under
+`docs/` means someone already made per-app decisions — package names, artifact paths,
+changelog handling, which track is safe. Use what is there and treat this skill as the
+fallback and the explanation. Publishing configuration that already works is worth more
+than consistency with a generic script.
+
+When the user names no store, publishing to every store the app has credentials for is the
+right reading of "upload it" — that is what `publish.sh` does by default. Only ask when
+they seem to want one specific store and it is genuinely ambiguous which.
+
+## Step 1 — Establish what the release is
+
+Check the version before touching anything, because a duplicate version code is rejected
+after the upload finishes, which is the slowest possible way to discover it.
+
+```bash
+grep '^version:' pubspec.yaml        # Flutter: version: 1.0.8+8  → name 1.0.8, code 8
+```
+
+Every store requires the version code to *increase* relative to what that store already
+has. The stores count independently — Play at 42 and AppGallery at 3 is normal — so
+check against the target store, not against a number in the repo.
+
+## Step 2 — Build
+
+```bash
+flutter build appbundle --release    # Google Play
+flutter build apk --release          # AppGallery
+flutter build ipa --release          # App Store (macOS + Xcode + signing required)
+```
+
+Release builds with minification take minutes. Start the build, then use the wait to read
+the store reference and check credentials rather than sitting idle.
+
+**Check for product flavors before building.** A bare `flutter build apk --release` builds
+*every* flavor, so one misconfigured flavor fails the whole run even when the flavor you
+actually ship is fine:
+
+```
+Execution failed for task ':app:processDevReleaseGoogleServices'.
+> No matching client found for package name 'com.example.app.dev' in google-services.json
+```
+
+`google-services.json` usually registers only the production package, so `dev`/`staging`
+die at the Google Services task. Grep `android/app/build.gradle` for `productFlavors` and
+pass `--flavor <prod>`. Cost of missing this is a full wasted build.
+
+One Android failure is worth recognizing on sight, because it only ever appears in a release
+build and reads like a code error rather than a toolchain one:
+
+```
+GeneratedPluginRegistrant.java: error: cannot find symbol
+  class FlutterFirebaseAnalyticsPlugin
+```
+
+The registrant is generated and correct — a **Kotlin-only plugin** simply produced no classes.
+Under AGP 9 a plugin either applies `kotlin-android` itself or relies on AGP's built-in Kotlin,
+and `android/gradle.properties` decides which via `android.builtInKotlin`. When the flag is
+`false` but the plugin skipped applying the Kotlin plugin (many guard on `agpMajor >= 9`), its
+sources never compile. Flipping the flag to `true` usually fails the other way, since plugins
+that *do* apply `kotlin-android` are then rejected — check which of your plugins apply it
+before flipping. The narrow fix is to apply the plugin to that one module from the app's root
+`build.gradle.kts`, with a `jvmTarget` matching the app's Java level.
+
+## Step 3 — Verify the signature before uploading
+
+A debug-signed artifact is rejected by every store, and the failure message is rarely
+clear about why. One command settles it:
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17   # keytool/apksigner are often not on PATH
+$ANDROID_HOME/build-tools/*/apksigner verify --print-certs <artifact>
+```
+
+The certificate DN should name the organization, not `CN=Android Debug`.
+
+Worth telling the user once, if it applies: when Play App Signing is enabled, Play
+re-signs with Google's key, so an AppGallery build carries a *different* signature and
+users cannot update across the two stores. That is expected, not a defect.
+
+## Step 4 — Upload, but do not submit
+
+Both transports default to uploading into a holding state — a draft version on AppGallery,
+an internal track on Play — and require an explicit flag to send anything for review.
+
+Keep that discipline. Uploading is reversible and cheap; submitting enters a queue that a
+human then has to manage, and on some stores a rejection carries a cooldown. Only pass the
+submit flag when the user asks for that specific release, not because it seems like the
+natural end of the task.
+
+See the store reference for the exact command.
+
+## Step 5 — Verify it actually landed
+
+Exit code 0 means the tool finished, not that the store accepted the build. Query the
+store back and confirm the version matches what you just built — the store references show
+the specific call. This catches the class of failure where an API returns success while
+silently discarding the upload.
+
+## Step 6 — Report what no API can do
+
+Publishing tooling moves binaries. It does not create the store listing, and every store
+rejects releases that are missing listing work:
+
+- **A test account**, whenever the app is login-gated. Reviewers who cannot get past the
+  login screen reject the build. This is the most common rejection across every store.
+- **Screenshots** — minimum 3, portrait, 1080×1920 for phones.
+- **Written justification for sensitive permissions** — location, camera, and advertising
+  ID. If an ID permission arrives transitively via an analytics SDK and no ads are served,
+  say exactly that.
+- **Privacy policy URL**, reachable and describing what the app actually collects.
+
+**Reuse the listing copy that already exists.** Before writing any marketing text, look for
+`android/fastlane/metadata/android/<locale>/` and `ios/fastlane/metadata/<locale>/` — title,
+short/full description, changelogs, and `images/phoneScreenshots/` are usually already there
+in every locale the app ships. Reusing them keeps the stores consistent and avoids inventing
+copy for an app you are describing blind. Count characters against store limits with a
+**Unicode-aware** tool: `awk`'s `length()` counts bytes, so an Arabic tagline reads as ~2×
+its real length and looks like it breaks an 80-character limit when it does not.
+
+**The privacy policy must be at least as broad as the privacy declarations.** Stores ask you
+to declare advertising, third-party sharing, and cross-border transfer, then link the policy
+next to it — and reviewers compare them. A policy narrower than the declaration is a
+documented rejection reason, so read the actual policy before ticking the boxes. Check the
+policy renders in the **listing's language** too: a localized store listing pointing at a
+policy URL that falls back to English is a bad look on an otherwise complete submission.
+
+Surface these as a checklist rather than assuming the user has them. Finishing an upload
+and staying silent about a missing test account just moves the failure a week later.
+
+## Credentials
+
+Each store uses its own mechanism, described in its reference. Two rules hold everywhere:
+
+**Never print a secret into the conversation.** Load it from a file directly into its
+destination. A transcript is a place secrets persist, so if the user pastes one anyway,
+use it, then tell them to rotate it.
+
+**One credential covers all their apps.** Both stores support an account-level credential
+granted access to every app. If you find yourself setting up a key per app, that is a sign
+the credential was scoped too narrowly at creation.
+
+## Working style
+
+Prefer measuring over guessing. Store APIs are cheap to probe read-only, and a single
+targeted call usually distinguishes "who am I?" from "what may I touch?" — a distinction
+that plausible reasoning gets wrong. The AppGallery reference documents a real case where
+a wrong ID produced a 403 that looked exactly like a permissions problem and cost an hour
+of investigating the wrong thing.
