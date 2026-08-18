@@ -28,10 +28,15 @@ git clone git@github.com:gaitco/mobile-publish.git ~/.claude/skills/mobile-publi
 Claude Code picks it up automatically. Ask it to "publish this app to AppGallery" (or Play, or
 TestFlight) from inside a Flutter, Android, or iOS repo.
 
+Then set up store credentials once — see **[SETUP.md](SETUP.md)**. One credential per store
+covers every app you publish, and any store you skip is simply skipped at publish time rather
+than failing the run.
+
 ## What's in here
 
 | File | Purpose |
 |---|---|
+| `SETUP.md` | One-time store credential setup for all three stores |
 | `SKILL.md` | The shared workflow: establish the release, build, verify the signature, upload, verify it landed, report what no API can do |
 | `references/appgallery.md` | Huawei AppGallery — auth, publishing, listing, and a long list of measured traps |
 | `references/play.md` | Google Play via `fastlane supply` |
