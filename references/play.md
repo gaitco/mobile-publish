@@ -47,14 +47,43 @@ nothing to check:
 fastlane run validate_play_store_json_key json_key:~/.config/play/service-account.json
 ```
 
-## The first release must be manual
+## The first release — what actually has to be manual
 
-Google does not allow the API to upload the **first** version of a new app. The initial
-build has to go through the Play Console by hand, along with the store listing, content
-rating, and data safety form. Every release after that can be automated.
+The **app record** must be created in the Play Console by hand, along with the store listing,
+content rating, and data safety form. The **binary** does not: on a console-created draft app
+with no package bound yet, `supply` uploaded the very first `.aab` without complaint and
+`google_play_track_version_codes` then returned it on the internal track. Treat "the first
+upload must be manual" as folklore and try the API.
 
-If `supply` fails on a brand-new app with a message about the app not being found, this is
-almost always why — not a credential problem.
+**A draft app has no package name until the first upload binds it.** Until then every
+package-keyed call — `edits.insert`, `agc.py app-id`, anything addressed by
+`applications/<pkg>` — reports the package as missing. That is not evidence the app is absent;
+it is an app waiting for its first artifact. Never infer "the app does not exist" from a
+package lookup.
+
+If `supply` fails on a brand-new app with a message about the app not being found, check that
+the app record exists and that the service account has been granted on it, before assuming a
+credential problem.
+
+## Permissions: a service account cannot grant itself
+
+Granting a service account access to an app is **console-only**, by design. `users.list`,
+`users.create`, and `grants.create` all return `403 PERMISSION_DENIED` when called with the
+service account's own credential. Confirm it cheaply and without side effects by attempting a
+grant for a package name that cannot exist: a 403 (rather than a 404) proves authorization is
+evaluated before the object is resolved, so no permission set will help. Send the user to
+Play Console → **Users and permissions**.
+
+**Do not read a 400 as permission to proceed.** This API validates the request *payload*
+before it checks authorization, so an invalid permission set returns a helpful 400 — e.g.
+*"you must give users the `CAN_VIEW_NON_FINANCIAL_DATA` permission first"* — on a call the
+caller was never allowed to make. Fixing the payload then yields the real 403. A 400 says
+nothing about whether you are allowed.
+
+Permissions worth granting a publishing account, in console terms: *View app information*
+(`CAN_VIEW_NON_FINANCIAL_DATA`, the required baseline), *Manage draft apps*, *Release to
+production* and *to testing tracks*, plus *View financial data* and *Manage orders and
+subscriptions* if the app has in-app purchases to verify or refund.
 
 ## Upload — check for existing lanes first
 

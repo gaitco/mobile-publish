@@ -1,6 +1,6 @@
 ---
 name: mobile-publish
-description: Build and upload a mobile app to Google Play, Huawei AppGallery, or the Apple App Store — one command, no per-project configuration. Use this whenever the user asks to publish, upload, release, or ship an app, including phrasings like "upload to the stores", "put this on Play", "release the Huawei build", "send a build to TestFlight", "upload the aab/ipa", "push to internal testing", or just "ship this app" from inside a Flutter, Android, or iOS repo — even if they never name a store or these scripts. Also use it when diagnosing store upload failures: HTTP 403 or an empty appid-list from AppGallery, fastlane supply errors, altool authentication failures, signing or provisioning errors, or a store review rejection.
+description: Build and upload a mobile app to Google Play, Huawei AppGallery, or the Apple App Store — one command, no per-project configuration. Use this whenever the user asks to publish, upload, release, or ship an app, including phrasings like "upload to the stores", "put this on Play", "release the Huawei build", "send a build to TestFlight", "upload the aab/ipa", "push to internal testing", or just "ship this app" from inside a Flutter, Android, or iOS repo — even if they never name a store or these scripts. Also use it when diagnosing store upload failures: HTTP 403 or an empty appid-list from AppGallery, fastlane supply errors, altool authentication failures, signing or provisioning errors, a build that uploads successfully but never appears in TestFlight, or a store review rejection. Also covers pre-submission console work no API creates: IAP products, and achievements or leaderboards on Play Games Services and Game Center.
 ---
 
 # Publishing a mobile app to a store
@@ -54,6 +54,12 @@ Read the reference for the target store **after** the shared steps below:
 | Google Play | `references/play.md` | the repo's fastlane lanes, else `fastlane supply` |
 | Apple App Store | `references/appstore.md` | `xcrun altool` (needs macOS + Xcode) |
 
+Cross-store console configuration that publishing tooling does **not** create:
+`references/game-services.md` — achievements and leaderboards on Play Games Services / Game Center.
+Read it if the app has achievements, leaderboards, or ranked progression, before submitting: the
+IDs must be minted in both consoles first, and two of the setup mistakes crash at launch or fail
+only on a real device.
+
 **Check the repo for existing publishing setup before reaching for these.** An
 `android/fastlane/Appfile`, a `Fastfile`, an `agc-service-account.json`, or a runbook under
 `docs/` means someone already made per-app decisions — package names, artifact paths,
@@ -89,6 +95,15 @@ flutter build ipa --release          # App Store (macOS + Xcode + signing requir
 Release builds with minification take minutes. Start the build, then use the wait to read
 the store reference and check credentials rather than sitting idle.
 
+**Never ship an incremental build.** Run `flutter clean` first for anything going to a store.
+Gradle's manifest merger caches its output, and if a source file changed since the last build
+it can emit a merged manifest holding **both** the old and new values. A real case: an
+`AndroidManifest.xml` edited between two builds produced an APK whose merged manifest carried
+the new deep-link host *and* a stale one that existed in no source file — only in
+`build/app/intermediates/merged_manifest/`. Android verifies **every** `autoVerify` host, so
+the dead entry would have broken App Links verification for the whole filter set. It was
+invisible in the source tree and only showed up in `aapt2 dump xmltree` on the artifact.
+
 **Check for product flavors before building.** A bare `flutter build apk --release` builds
 *every* flavor, so one misconfigured flavor fails the whole run even when the flavor you
 actually ship is fine:
@@ -119,7 +134,55 @@ that *do* apply `kotlin-android` are then rejected — check which of your plugi
 before flipping. The narrow fix is to apply the plugin to that one module from the app's root
 `build.gradle.kts`, with a `jvmTarget` matching the app's Java level.
 
-## Step 3 — Verify the signature before uploading
+## Step 3 — Verify the artifact before uploading
+
+### Privacy declarations, if the app records audio or video
+
+Check this **before** uploading, because the iOS failure mode is silent (see Step 5). A plugin
+that links microphone or camera APIs — `flutter_webrtc`, recorders, scanners — obliges the
+*host app* to declare them. Plugins frequently declare nothing on their own behalf:
+`flutter_webrtc` ships an Android manifest containing literally no `uses-permission` at all.
+
+```bash
+# iOS: linking mic/camera APIs with no purpose string ⇒ ITMS-90683, rejected at processing
+plutil -p ios/Runner/Info.plist | grep UsageDescription
+
+# Android: without RECORD_AUDIO in the manifest, Permission.microphone.request()
+# resolves denied WITHOUT EVER SHOWING A DIALOG, and getUserMedia fails
+aapt2 dump permissions <artifact> | grep RECORD_AUDIO
+```
+
+Both defects break the feature on a real device only — a simulator will not reveal either.
+Declare what the app actually uses and nothing more: an audio-only call needs `RECORD_AUDIO`
+and `MODIFY_AUDIO_SETTINGS`, not `CAMERA`, and an unused permission is one more thing the
+listing has to justify. On iOS the purpose string is required by *linked* APIs rather than
+used ones, so a camera string may be needed even for an audio-only feature.
+
+### A device launch test, and the adb trap that fakes a pass
+
+For a first release or any build whose manifest/plugins changed, install the release artifact on
+a device or an existing emulator and launch it — static checks cannot catch a startup crash. But
+know this failure mode first, because it produces a **passing test against the wrong build**:
+
+```
+adb: failed to install …: INSTALL_FAILED_UPDATE_INCOMPATIBLE:
+     Existing package com.example signatures do not match newer version; ignoring!
+```
+
+After that failed install, `adb shell am start` happily launches the **stale package already on
+the device** — healthy process, clean logcat, all green, none of it about your build. Uninstall
+first, and only trust the launch test after `dumpsys package <pkg> | grep versionCode` reports
+the versionCode you just built:
+
+```bash
+adb uninstall <pkg>; adb install <artifact>
+adb shell dumpsys package <pkg> | grep versionCode     # MUST match the new build
+adb shell am start -n <pkg>/.MainActivity && sleep 12
+adb shell pidof <pkg>                                   # alive?
+adb logcat -d | grep -c "FATAL EXCEPTION"               # 0?
+```
+
+### Signature
 
 A debug-signed artifact is rejected by every store, and the failure message is rarely
 clear about why. One command settles it:
@@ -149,10 +212,36 @@ See the store reference for the exact command.
 
 ## Step 5 — Verify it actually landed
 
-Exit code 0 means the tool finished, not that the store accepted the build. Query the
-store back and confirm the version matches what you just built — the store references show
-the specific call. This catches the class of failure where an API returns success while
-silently discarding the upload.
+**AppGallery has a second trap here: the package check is asynchronous and its verdict never
+reaches the API.** `app-info` reporting the right `versionCode` does not mean the package was
+accepted — poll `appid-list?packageName=<pkg>` until it returns your appId, and read
+`references/appgallery.md` if it returns a different one (that is error 9005, a duplicate app
+record owning the name).
+
+
+**Exit code 0 means the tool finished, not that the store accepted the build.** Always query
+the store back and confirm the version matches what you just built. This is not a formality —
+it is the only way to catch a store that reports success and then silently discards the build.
+
+```bash
+# Play — what the track actually holds
+fastlane run google_play_track_version_codes \
+  package_name:<pkg> track:internal json_key:<key>           # → Result: [7]
+
+# App Store Connect — the ONLY proof an iOS upload survived
+#   (needs an ASC API JWT; altool cannot answer this)
+GET /v1/builds?filter[app]=<appId>&sort=-uploadedDate        # → version + processingState
+
+# AppGallery
+python3 scripts/agc.py info                                  # → versionNumber
+```
+
+**iOS is the dangerous one.** `altool` reporting `UPLOAD SUCCEEDED with no errors` means the
+bytes arrived, nothing more. Apple then runs static analysis, and a build it rejects there
+**never appears anywhere** — not TestFlight, not `/v1/builds` — while the only notification
+goes by **email, to the account-holder address**, which is often not the developer's own
+mailbox. A build that uploads twice and vanishes twice is this, not lag. Confirm
+`processingState: VALID` before believing an iOS upload landed.
 
 ## Step 6 — Report what no API can do
 
@@ -166,6 +255,8 @@ rejects releases that are missing listing work:
   ID. If an ID permission arrives transitively via an analytics SDK and no ads are served,
   say exactly that.
 - **Privacy policy URL**, reachable and describing what the app actually collects.
+- **Achievements and leaderboards**, if the app has them — minted per store, icons uploaded by
+  hand on Android. See `references/game-services.md`.
 
 **Reuse the listing copy that already exists.** Before writing any marketing text, look for
 `android/fastlane/metadata/android/<locale>/` and `ios/fastlane/metadata/<locale>/` — title,

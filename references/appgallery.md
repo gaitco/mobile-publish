@@ -129,6 +129,82 @@ Details worth knowing:
 - **AGC needs time to process an uploaded package.** `submit` retries 5× at 60 s intervals;
   do not interpret the first "not accepted yet" as a failure.
 
+## The package check is asynchronous, and its result is invisible to the API
+
+`upload` printing "Upload attached to the draft release" means the bytes arrived and
+`app-file-info` returned `ret.code 0`. AGC *then* runs a package check, and a failure there is
+reported **only** in the console: **Manage packages → Status** column, as
+`Error details (<code>)`. There is no API field for it.
+
+**`app-info.versionNumber` / `versionCode` do NOT prove the check passed.** They reflect the
+uploaded package record. A rejected package still sets them, so an upload can read back as
+`1.0.8 (8)` while the version page says *"Select an app package"* and
+*"One or more errors found in the settings ... App version"*. Verified the hard way: two 76 MB
+uploads both reported success and both were rejected.
+
+**The reliable proxy is `appid-list`:**
+
+```bash
+GET appid-list?packageName=<pkg>
+```
+
+- returns **your** appId → the check passed and the name is bound to that record
+- returns a **different** appId → that other record owns the name; your upload is failing 9005
+- returns **`[]`** → the name is unclaimed
+
+It flips to the new appId within about a minute of a successful check, so poll it instead of
+trusting the transport.
+
+### Error 9005: the package name already exists
+
+Cause: another app record **in the same developer account** already owns that package name.
+Two draft records created for the same app is the common way in — the first upload binds the
+name, and every upload to the second record fails 9005 forever. Huawei's remedy is "wait for
+review to complete or remove your app", and the console never explains which app is holding it.
+
+Spot it before uploading: if `appid-list` returns an appId that is not the record you are
+publishing to, stop and resolve the duplicate first.
+
+**Three different "delete" actions exist and only one frees a package name:**
+
+| Action | Where | Effect |
+|---|---|---|
+| Delete (a package row) | Manage packages → Delete | removes one uploaded APK; name stays claimed |
+| Remove from sale | Maintaining an app | unpublishes a live app; name stays claimed |
+| **Delete app** | **Release app → App information → bottom of page** | **destroys the record and frees the name** |
+
+`Delete app` only appears for apps that are **draft/unreleased** — check
+`releaseState` and `onShelfVersionNumber: null` first. Both records usually share the same
+display name, so confirm the appId in the URL before deleting; deleting the wrong one throws
+away its countries, category, listings, screenshots, icon and privacy tags.
+
+After a successful delete, `app-info` on the dead appId errors with
+`204144689 call amis/ascf to get the app owner failed`, and `appid-list` returns `[]` — the
+name is genuinely released, not held for a cool-down. Re-upload then binds normally.
+
+## A console session can silently destroy data set via the API
+
+Observed live: mid-session, the **`en-US` language entry vanished entirely** (taking its
+listing text with it) and the **package came off the version draft** — while `app-info` still
+reported `1.0.8 (8)`. Re-running `upload` and `listing <spec>` fixed both, but the recreated
+language needed its screenshots re-uploaded.
+
+**Re-read every field after any console work. Do not assume earlier API writes survived.**
+
+Per-language gotchas, all measured:
+
+- **The icon is per-language** and console-only. Each language needs its own upload via the
+  language toggle. `agc.py ready` only inspects `languages[0]`, so it prints OK while a second
+  language is still missing its icon — iterate the whole `languages` array yourself.
+- **Screenshots do NOT propagate across languages.** Uploading for `ar` appeared to populate
+  `en-US`, but that was AGC copying the default language at creation time; after `en-US` was
+  recreated it had **0** screenshots. `agc.py screenshots` has no `--lang` flag and always
+  targets `defaultLang` — call `c.screenshots(app_id, shots, lang="en-US")` directly.
+- **A new language is pre-filled with the default language's text**, so an `en-US` listing can
+  sit there showing Arabic and look configured. Compare the strings, not their presence.
+- **`briefInfo` is silently truncated at 80 characters** — no error, and a sentence clipped
+  mid-clause keeps its dangling comma on the public listing. Read it back and check the tail.
+
 ## Filling the listing from the API
 
 Most of the store listing is writable, which matters because AGC blocks submission until the
@@ -230,6 +306,14 @@ is still flagged (privacy tags, the rating questionnaire), clicking Save aborts 
 else on that page — including a freshly picked icon — is discarded with it. Someone saying "I
 saved it" is not evidence; `appInfo.updateTime` not moving is.
 
+### Privacy tags: read `references/appgallery-privacy-tags.md`
+
+The privacy-tag taxonomy (7 service scenarios, 12 data-item tabs and their verbatim items) is
+documented there, along with proof that it is NOT retrievable from the web — Huawei's doc page
+is a JS SPA returning a 1824-byte shell, the markdown alternate is unroutable, and the one
+third-party write-up 403s. Do not re-derive it, and do not guess item names to advise a user;
+the console dialog is the only source of truth.
+
 ### Still console-only — measured, not assumed
 
 Privacy tags (collect-personal-data), the **AI function declaration** (Generative AI service:
@@ -314,6 +398,8 @@ so one stale build cannot block the rest.
 | `appid-list` returns `appids: []` | Client has no app permissions, or the app is under a different developer account. |
 | `205524993 client token auth failed` | The JWT was exchanged for a token instead of being used directly as the Bearer. |
 | Token succeeds, every call 403s | Credentials fine, authorization missing — roles or account mismatch. |
+| `Error details (9005)` in Manage packages, `Select` greyed out | Another app record in the account owns the package name. `GET appid-list?packageName=` names it. Delete that record via App information → Delete app. |
+| Version page says "Select an app package" though `app-info` shows a version | The package failed its async check, or a console action detached it. Re-upload and poll `appid-list`. |
 | Reports success, nothing appears | Check `.ret.code` in the body; AppGallery returns HTTP 200 on logical failures. A `ret.code 0` on a PUT proves only that the request parsed — unknown field names are dropped silently, so re-read with `GET app-info`. |
 | `204144641 image's signature or data type is invalid` | Attaching screenshots through `app-file-info`. That path is for the icon; use the console. |
 | `jwt verify error` | PSS salt length wrong — must be `rsa_pss_saltlen:digest`, not `-1`. |
