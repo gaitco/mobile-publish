@@ -1,3 +1,5 @@
+<p align="center"><img src="art/banner.png" alt="Mobile Publish — One command to build and ship an app to Google Play, AppGallery or the App Store." width="100%"></p>
+
 # mobile-publish
 
 ![mobile-publish](assets/cover.png)
