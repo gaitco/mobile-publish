@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mobile Publish"
+  short_description: "Build and upload mobile apps to app stores"
+  default_prompt: "Use $mobile-publish to build and upload this app to Google Play internal testing without submitting it for review."

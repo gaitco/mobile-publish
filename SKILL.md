@@ -1,6 +1,6 @@
 ---
 name: mobile-publish
-description: Build and upload a mobile app to Google Play, Huawei AppGallery, or the Apple App Store — one command, no per-project configuration. Use this whenever the user asks to publish, upload, release, or ship an app, including phrasings like "upload to the stores", "put this on Play", "release the Huawei build", "send a build to TestFlight", "upload the aab/ipa", "push to internal testing", or just "ship this app" from inside a Flutter, Android, or iOS repo — even if they never name a store or these scripts. Also use it when diagnosing store upload failures: HTTP 403 or an empty appid-list from AppGallery, fastlane supply errors, altool authentication failures, signing or provisioning errors, a build that uploads successfully but never appears in TestFlight, or a store review rejection. Also covers pre-submission console work no API creates: IAP products, and achievements or leaderboards on Play Games Services and Game Center.
+description: Build and upload mobile apps to Google Play, Huawei AppGallery, or the Apple App Store. Use for store uploads, internal testing, TestFlight, release submission, signing or provisioning failures, missing uploaded builds, and store review rejections. Includes pre-submission listing and game-services setup.
 ---
 
 # Publishing a mobile app to a store
@@ -11,14 +11,26 @@ a human in the console can do. What changes per store is the transport and the t
 
 ## Start here: just publish it
 
-Most of the time the answer is one command, run from anywhere inside the repo:
+This skill works in Codex and Claude Code. Resolve `MOBILE_PUBLISH_SKILL_DIR` to the
+absolute directory containing **this loaded SKILL.md**, not the app project. All
+`references/`, `scripts/`, and `SETUP.md` paths in this skill and its references are
+relative to that directory. Read references there and invoke bundled shell/Python
+scripts through `bash`/`python3` using quoted absolute paths.
+
+Keep the command's working directory inside the target app project so discovery finds
+the correct app. For example, for the standard Codex installation:
 
 ```bash
-scripts/publish.sh                 # every store this app has a credential for
-scripts/publish.sh --store play    # one store (play | agc | asc)
-scripts/publish.sh --build         # rebuild instead of reusing the existing artifact
-scripts/publish.sh --submit        # also send for review
+MOBILE_PUBLISH_SKILL_DIR="$HOME/.agents/skills/mobile-publish"
+bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play # one store (play | agc | asc)
+# Add --build to rebuild, or --submit only when review submission is requested.
 ```
+
+Use the actual loaded path for Claude Code or a custom installation. Do not change into
+the skill directory to run the publisher. Check the project's existing publishing setup
+and complete the verification steps below before invoking an upload. The convenience
+script discovers Flutter modules; for native Android/iOS, use the project's build/release
+tooling and the relevant store reference instead.
 
 It discovers the Flutter module, the `applicationId`, the version, the artifact paths, and
 the credentials on its own. **Do not ask the user for a package name, an app ID, a
@@ -37,12 +49,11 @@ Read a store reference when something fails, when the user wants a step this doe
 | Google Play | `$PLAY_STORE_JSON_KEY` → `<app>/android/play-store-key.json` → `~/.config/play/service-account.json` |
 | App Store | `~/.config/asc/config` (`ASC_KEY_ID`, `ASC_ISSUER_ID`) + `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8` |
 
-All three are account-wide: one Play service account reaches every app in the Play Console
-account, one AGC service account reaches every app in the AGC account, and one App Store
-Connect key reaches every app on the Apple team. So a new repo needs **no credential setup
-at all**. Before concluding a credential is missing, check
-the central paths above — and if a repo-local key exists somewhere else, adopt it into the
-central store rather than asking the user to produce a new one.
+Account-level credentials can serve multiple apps when granted access to them. Check
+the central paths above and the project's existing configuration before requesting new
+credentials. Verify access to the intended app; a credential file's presence does not
+prove permissions. Keep secrets out of source control and do not overwrite shared
+credentials while setting up a new project.
 
 ## The underlying workflow
 
@@ -233,7 +244,7 @@ fastlane run google_play_track_version_codes \
 GET /v1/builds?filter[app]=<appId>&sort=-uploadedDate        # → version + processingState
 
 # AppGallery
-python3 scripts/agc.py info                                  # → versionNumber
+python3 "$MOBILE_PUBLISH_SKILL_DIR/scripts/agc.py" info                                  # → versionNumber
 ```
 
 **iOS is the dangerous one.** `altool` reporting `UPLOAD SUCCEEDED with no errors` means the
