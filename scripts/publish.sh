@@ -2,9 +2,11 @@
 #
 # Zero-configuration publisher. Run it from anywhere inside a Flutter/Android repo:
 #
-#   publish.sh                 # upload to every store this app is set up for
+#   publish.sh                 # prepare fresh artifacts for inspection (no upload)
+#   publish.sh --upload-prepared # upload the exact artifacts inspected after preparation
 #   publish.sh --store play    # one store only  (play | agc | asc)
-#   publish.sh --build         # rebuild first instead of using the existing artifact
+#   publish.sh --check         # local readiness only; no build or upload
+#   publish.sh --build         # accepted for compatibility; builds are always clean
 #   publish.sh --submit        # also send for review / promote past the holding track
 #
 # Everything else is discovered: the app module, the package name, the version, the
@@ -12,19 +14,26 @@
 #
 set -uo pipefail
 
-STORE=all BUILD=0 SUBMIT=0 TRACK=internal
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+STORE=all SUBMIT=0 TRACK=internal CHECK=0 MODE=prepare
 while [ $# -gt 0 ]; do
   case "$1" in
-    --store)  STORE="${2:-all}"; shift 2 ;;
-    --track)  TRACK="${2:-internal}"; shift 2 ;;
-    --build)  BUILD=1; shift ;;
+    --store)  [ $# -ge 2 ] && [ -n "$2" ] || die '--store needs a value'; STORE="$2"; shift 2 ;;
+    --track)  [ $# -ge 2 ] && [ -n "$2" ] || die '--track needs a value'; TRACK="$2"; shift 2 ;;
+    --build)  shift ;;
+    --check)  CHECK=1; shift ;;
+    --prepare) MODE=prepare; shift ;;
+    --upload-prepared) MODE=upload; shift ;;
     --submit) SUBMIT=1; shift ;;
     -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
-die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+case "$STORE" in all|play|agc|asc) ;; *) die "unknown store: $STORE" ;; esac
+case "$TRACK" in internal|alpha|beta|production) ;; *) die "unsupported track: $TRACK" ;; esac
+[ "$SUBMIT" = 0 ] || [ "$STORE" = agc ] || die '--submit is supported only for --store agc; use the store-specific review workflow for Apple/Play'
+[ "$TRACK" != production ] || die 'production promotion requires the project-specific release workflow'
 log() { printf '\033[1m==> %s\033[0m\n' "$*" >&2; }
 
 # ---------------------------------------------------------------- discover the app
@@ -42,7 +51,10 @@ while [ "$d" != "/" ]; do
 done
 [ -n "$APP" ] || die "no pubspec.yaml found from $PWD upward — is this a Flutter repo?"
 
-GRADLE=$(ls "$APP"/android/app/build.gradle.kts "$APP"/android/app/build.gradle 2>/dev/null | head -1)
+GRADLE=''
+for candidate in "$APP/android/app/build.gradle.kts" "$APP/android/app/build.gradle"; do
+  if [ -f "$candidate" ]; then GRADLE="$candidate"; break; fi
+done
 [ -n "$GRADLE" ] || die "no android/app/build.gradle(.kts) under $APP"
 
 # applicationId = "com.x.y"   (kts)   or   applicationId "com.x.y"   (groovy)
@@ -82,10 +94,12 @@ done
 
 # App Store Connect: key id + issuer id from env or the shared config; the .p8 itself
 # must sit in ~/.appstoreconnect/private_keys/ where Apple's tools look for it.
+# shellcheck source=/dev/null
 [ -f "$HOME/.config/asc/config" ] && { set -a; . "$HOME/.config/asc/config"; set +a; }
 ASC_OK=0
+ASC_P8="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID:-}.p8"
 [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] \
-  && [ -f "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" ] && ASC_OK=1
+  && [ -f "$ASC_P8" ] && ASC_OK=1
 
 DO_PLAY=0; DO_AGC=0; DO_ASC=0
 want play && [ -n "$PLAY_KEY" ] && DO_PLAY=1
@@ -99,33 +113,70 @@ if want asc && [ "$DO_ASC" = 0 ]; then
   else echo "  (skipping App Store — set ASC_KEY_ID/ASC_ISSUER_ID in ~/.config/asc/config)" >&2; fi
 fi
 [ $((DO_PLAY + DO_AGC + DO_ASC)) -gt 0 ] || die "no store to publish to"
+[ "$DO_PLAY" = 0 ] || [ -r "$PLAY_KEY" ] || die 'configured Play credential is missing or unreadable'
+[ "$DO_AGC" = 0 ] || [ -r "$AGC_KEY" ] || die 'configured AppGallery credential is missing or unreadable'
+if [ "$DO_PLAY" = 1 ] && [ -f "$APP/android/fastlane/Fastfile" ]; then
+  die 'project Fastfile found; inspect and use its actual upload lane rather than guessing its name'
+fi
+if grep -q 'productFlavors' "$GRADLE"; then
+  die 'product flavors found; use the project-specific release workflow with an explicit production flavor'
+fi
+
+# Fail before an expensive build when a required local tool is missing.
+command -v flutter >/dev/null || die 'flutter is not installed'
+command -v python3 >/dev/null || die 'python3 is not installed'
+[ "$DO_PLAY" = 0 ] || command -v fastlane >/dev/null || die 'fastlane is not installed'
+[ "$DO_AGC" = 0 ] || command -v python3 >/dev/null || die 'python3 is not installed'
+[ "$DO_ASC" = 0 ] || command -v asc >/dev/null || die 'asc CLI is not installed'
+if [ "$CHECK" = 1 ]; then
+  log 'local credentials and tools found (store permissions, signing and version availability still need verification)'
+  exit 0
+fi
+
+# One clean operation for all requested artifacts, before building any of them.
+# Reusing arbitrary files in build/ can silently publish another revision/version.
+if [ "$MODE" = prepare ]; then
+  ( cd "$APP" && flutter clean && flutter pub get ) || die 'clean/dependency resolution failed'
+fi
 
 # ---------------------------------------------------------------- build what's needed
 
-build_if_missing() { # <artifact> <flutter build target>
-  if [ "$BUILD" = 1 ] || [ ! -f "$1" ]; then
+build_artifact() { # <artifact> <flutter build target>
+  if [ "$MODE" = prepare ]; then
     log "building $2"
     ( cd "$APP" && flutter build "$2" --release ) || die "$2 build failed"
-  else
-    log "using existing $(basename "$1") ($(du -h "$1" | cut -f1), built $(date -r "$1" '+%Y-%m-%d %H:%M'))"
   fi
+  [ -f "$1" ] || die "$2 did not produce the expected artifact"
 }
 
-[ "$DO_PLAY" = 1 ] && build_if_missing "$AAB" appbundle
-[ "$DO_AGC"  = 1 ] && build_if_missing "$APK" apk
+[ "$DO_PLAY" = 1 ] && build_artifact "$AAB" appbundle
+[ "$DO_AGC"  = 1 ] && build_artifact "$APK" apk
 
 IPA=""
 if [ "$DO_ASC" = 1 ]; then
-  IPA=$(ls -t "$IPA_DIR"/*.ipa 2>/dev/null | head -1)
-  if [ "$BUILD" = 1 ] || [ -z "$IPA" ]; then
+  if [ "$MODE" = prepare ]; then
     log "building ipa (needs a valid signing setup in Xcode)"
     ( cd "$APP" && flutter build ipa --release ) || die "ipa build failed"
-    IPA=$(ls -t "$IPA_DIR"/*.ipa 2>/dev/null | head -1)
-  else
-    log "using existing $(basename "$IPA") ($(du -h "$IPA" | cut -f1))"
   fi
+  shopt -s nullglob
+  ipas=("$IPA_DIR"/*.ipa)
+  [ "${#ipas[@]}" -eq 1 ] || die 'expected exactly one newly built IPA'
+  IPA="${ipas[0]}"
   [ -n "$IPA" ] || die "no .ipa produced in $IPA_DIR"
 fi
+
+artifacts=()
+[ "$DO_PLAY" = 0 ] || artifacts+=("$AAB")
+[ "$DO_AGC" = 0 ] || artifacts+=("$APK")
+[ "$DO_ASC" = 0 ] || artifacts+=("$IPA")
+MANIFEST="$APP/build/mobile-publish.json"
+IDENTITY="$PACKAGE|$BUNDLE|$VERSION|$DO_PLAY|$DO_AGC|$DO_ASC|$TRACK"
+if [ "$MODE" = prepare ]; then
+  python3 "$(dirname "$0")/prepared_release.py" record "$MANIFEST" "$IDENTITY" "${artifacts[@]}" || die 'could not record prepared artifacts'
+  log 'prepared only; no upload performed. Inspect signatures, versions and runtime behavior, then use --upload-prepared with the same store/track.'
+  exit 0
+fi
+python3 "$(dirname "$0")/prepared_release.py" verify "$MANIFEST" "$IDENTITY" "${artifacts[@]}" || die 'prepared artifact verification failed'
 
 ok=() failed=()
 
@@ -133,19 +184,11 @@ ok=() failed=()
 
 if [ "$DO_PLAY" = 1 ]; then
   log "Google Play → track $TRACK"
-  # A repo with its own fastlane lanes encodes decisions a generic call would lose
-  # (changelogs from metadata/, custom artifact paths). Prefer them.
-  if [ -f "$APP/android/fastlane/Appfile" ]; then
-    log "using this repo's fastlane lanes"
-    if ( cd "$APP/android" && PLAY_STORE_JSON_KEY="$PLAY_KEY" fastlane upload track:"$TRACK" ); then
-      ok+=("play"); else failed+=("play"); fi
-  else
     if fastlane supply --json_key "$PLAY_KEY" --package_name "$PACKAGE" --aab "$AAB" \
         --track "$TRACK" --skip_upload_metadata true --skip_upload_images true \
         --skip_upload_screenshots true --skip_upload_changelogs true \
-        $([ "$SUBMIT" = 0 ] && echo "--changes_not_sent_for_review true"); then
+        --release_status draft --changes_not_sent_for_review true; then
       ok+=("play"); else failed+=("play"); fi
-  fi
 fi
 
 # ---------------------------------------------------------------- Huawei AppGallery
@@ -161,12 +204,11 @@ fi
 
 if [ "$DO_ASC" = 1 ]; then
   log "App Store Connect — $BUNDLE"
-  # Without --submit, validate only: altool's dry run runs Apple's real checks
-  # (signing, entitlements, Info.plist) without putting a build in App Store Connect.
-  if [ "$SUBMIT" = 1 ]; then ACT=(--upload-app -f "$IPA"); else ACT=(--validate-app -f "$IPA"); fi
-  [ "$SUBMIT" = 1 ] || log "validating only — pass --submit to actually upload the build"
-  if xcrun altool "${ACT[@]}" -t ios \
-       --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"; then
+  # Uploading to ASC is separate from submitting for App Store review.
+  # --wait propagates processing failures instead of treating transport as acceptance.
+  if ASC_KEY_ID="$ASC_KEY_ID" ASC_ISSUER_ID="$ASC_ISSUER_ID" \
+       ASC_PRIVATE_KEY_PATH="$ASC_P8" \
+       asc builds upload --app "$BUNDLE" --ipa "$IPA" --wait; then
     ok+=("appstore"); else failed+=("appstore"); fi
 fi
 
@@ -174,5 +216,5 @@ fi
 
 echo
 log "done — succeeded: ${ok[*]:-none}   failed: ${failed[*]:-none}"
-[ "$SUBMIT" = 1 ] || echo "   uploaded to holding areas only; re-run with --submit to send for review" >&2
+[ "$SUBMIT" = 1 ] || echo "   review submission is a separate store-specific action; inspect any failed stores above" >&2
 [ ${#failed[@]} -eq 0 ]

@@ -1,7 +1,7 @@
 # Apple App Store
 
-Artifact: `.ipa`. Transport: `xcrun altool` (ships with Xcode). Requires macOS with Xcode —
-unlike the Android stores, there is no way to produce or upload the artifact elsewhere.
+Artifact: `.ipa`. Build with macOS/Xcode; prefer the installed `asc` CLI for upload and
+processing verification. `xcrun altool` remains a fallback transport on macOS.
 
 The **iOS bundle id is not the Android applicationId**. Ranisy, for example, is
 `com.ghanemtech.ranisy_logistics` on Android and `com.ghanemtech.ranisyLogistics` on iOS.
@@ -81,9 +81,12 @@ xcrun altool --validate-app -f <ipa> -t ios --apiKey "$ASC_KEY_ID" --apiIssuer "
 xcrun altool --upload-app -f <ipa> -t ios --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
 ```
 
-`publish.sh --store asc` validates by default and only uploads with `--submit`, because
-`--validate-app` catches nearly every rejection cause in about a minute, while a failed
-upload costs the full transfer first.
+`publish.sh --store asc --prepare` builds cleanly without uploading. After inspecting the
+new IPA, `publish.sh --store asc --upload-prepared` verifies its saved hash and uploads
+using `asc builds upload --app <bundle-id> --ipa <ipa> --wait`. `--check` checks local
+readiness only. Uploading never submits for App Store review. Use `asc builds list` to inspect
+the exact build and confirm `processingState: VALID`; do not treat a transfer receipt as
+acceptance. The shared `--submit` option is AppGallery-only.
 
 ### A build that uploads successfully and never appears
 

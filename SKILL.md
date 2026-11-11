@@ -1,6 +1,6 @@
 ---
 name: mobile-publish
-description: Build and upload mobile apps to Google Play, Huawei AppGallery, or the Apple App Store. Use for store uploads, internal testing, TestFlight, release submission, signing or provisioning failures, missing uploaded builds, and store review rejections. Includes pre-submission listing and game-services setup.
+description: Use for mobile store uploads, internal testing, TestFlight, release submission, signing failures, missing builds, store review rejections, or streamlining the mobile release and CI workflow.
 ---
 
 # Publishing a mobile app to a store
@@ -22,8 +22,11 @@ the correct app. For example, for the standard Codex installation:
 
 ```bash
 MOBILE_PUBLISH_SKILL_DIR="$HOME/.agents/skills/mobile-publish"
-bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play # one store (play | agc | asc)
-# Add --build to rebuild, or --submit only when review submission is requested.
+bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play --prepare
+# Inspect the newly built artifact, then transfer those exact bytes:
+bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play --upload-prepared
+# --check inspects local tools/credentials without building or uploading.
+# Builds are always clean. --submit is supported only for --store agc.
 ```
 
 Use the actual loaded path for Claude Code or a custom installation. Do not change into
@@ -40,6 +43,40 @@ which store it skipped and why; only then is there something to ask about.
 
 Read a store reference when something fails, when the user wants a step this doesn't cover
 (promotion, changelogs, first-time listing), or when you need to explain what happened.
+
+## Fast repeatable releases
+
+For a short request such as «ارفع», reuse the app's existing CI/release setup and central
+credentials. Run `publish.sh --check` first. This is a local check, not proof of store access
+or signing. Check the latest relevant CI run using `gh run list/view`; wait for a running
+gate, inspect failures, and fix causes before uploading. Report CI absence rather than
+assuming it passed. Never open an external browser for routine release work.
+
+Before a build, query each requested store for the current app/version, resolve a new build
+number, and verify the working tree contains the intended changes. File presence does not
+prove account permissions. Use the installed `asc` CLI for Apple app/build lookup and
+processing verification; read command `--help` for the installed version. Keep credentials
+in their existing protected locations and use environment variables/file input, not values
+in command arguments or logs.
+
+The shared script is the fallback for unflavored Flutter apps without custom Play lanes.
+It stops before building when flavors/custom lanes need inspection; use the project's
+actual lane and production flavor in those cases. All requested builds must finish and
+artifact verification below must pass before uploads. The script builds cleanly, but does
+not replace signature, permission/entitlement, runtime or cross-platform OTA checks.
+The default command prepares only and reports that nothing was uploaded. After inspection,
+`--upload-prepared` checks the saved artifact hashes, app/version and store/track selection;
+it refuses changed artifacts and never rebuilds between inspection and transfer. Perform
+both phases autonomously when the user requests an upload; this is a technical verification
+boundary, not a request for another user confirmation.
+
+When a transport fails, inspect the store for the exact build before retrying; do not
+blindly upload again or bump a version to hide the error. Retry a transient network failure
+once after establishing that the build was not accepted. Fix concrete build/configuration
+causes within scope. Stop and report account permissions, missing credentials, store
+declarations or native/OTA incompatibility that cannot be resolved with existing access.
+Report separately: built, transferred, accepted/processed, and submitted for review.
+Preparing CI is not permission to upload an arbitrary current app version.
 
 ## Credentials live centrally, and are almost certainly already there
 
@@ -211,13 +248,13 @@ users cannot update across the two stores. That is expected, not a defect.
 
 ## Step 4 — Upload, but do not submit
 
-Both transports default to uploading into a holding state — a draft version on AppGallery,
-an internal track on Play — and require an explicit flag to send anything for review.
+The fallback uploads into a holding state: AppGallery draft, Play internal draft, or an
+Apple build awaiting any separate distribution/review action.
 
 Keep that discipline. Uploading is reversible and cheap; submitting enters a queue that a
 human then has to manage, and on some stores a rejection carries a cooldown. Only pass the
-submit flag when the user asks for that specific release, not because it seems like the
-natural end of the task.
+submit flag when the user asks for that specific release. The shared `--submit` flag is
+AppGallery-only; Apple review and Play promotion use their store-specific workflows.
 
 See the store reference for the exact command.
 
