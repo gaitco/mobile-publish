@@ -19,13 +19,16 @@ def normalize(data, request, store):
     return state
 
 
-def transfer(query, upload):
+def transfer(query, upload, max_attempts=2):
     """At most two transport attempts, each preceded and followed by a query.
 
     Adapters must never translate an incomplete listing into ``absent``. In
     particular, a missing processed ASC build does not prove Apple never received it.
     """
-    for attempt in range(2):
+    if max_attempts <= 0:
+        current = query()
+        return 'unknown' if current == 'absent' else current
+    for attempt in range(max_attempts):
         before = query()
         if before != 'absent':
             return before
@@ -33,6 +36,6 @@ def transfer(query, upload):
         after = query()
         if after != 'absent':
             return after
-        if outcome != 'transient' or attempt == 1:
+        if outcome != 'transient' or attempt == max_attempts - 1:
             return 'unknown'
     return 'unknown'

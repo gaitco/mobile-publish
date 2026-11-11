@@ -74,6 +74,25 @@ class RequestTests(unittest.TestCase):
         nested.mkdir(parents=True)
         self.assertEqual(discover(nested), self.app.resolve())
 
+    def test_ignored_entrypoint_is_still_an_authoritative_build_input(self):
+        (self.app / '.gitignore').write_text('generated/\n')
+        (self.app / 'generated').mkdir()
+        entry = self.app / 'generated/main.dart'
+        entry.write_text('before')
+        self.profile(target='generated/main.dart')
+        before = resolve(self.app)
+        entry.write_text('after')
+        self.assertNotEqual(before, resolve(self.app))
+
+    def test_selected_store_does_not_allow_a_partial_application_lock_identity(self):
+        self.profile()
+        path = self.app / 'mobile-publish.release.json'
+        data = json.loads(path.read_text())
+        del data['identities']['asc']
+        path.write_text(json.dumps(data))
+        with self.assertRaises(ValueError):
+            resolve(self.app, store='play')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -13,6 +13,8 @@ import re
 
 from prepared_release import digest
 
+CLOSED_STAGES = {'closed_preparation', 'closed_reconciled'}
+
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -61,9 +63,9 @@ class Journal:
             data = json.loads(path.read_text())
             runs.append((path, data))
         for path, data in sorted(runs, key=lambda item: item[1]['created'], reverse=True):
-            if data['request'] == request and data.get('stage') != 'closed_preparation':
+            if data['request'] == request and data.get('stage') not in CLOSED_STAGES:
                 return cls(path.parent, data)
-        if any(not cls.complete(data) and data.get('stage') != 'closed_preparation' for _, data in runs):
+        if any(not cls.complete(data) and data.get('stage') not in CLOSED_STAGES for _, data in runs):
             raise ValueError('a different pending release exists; inspect it before starting another')
         identifier = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S-') + uuid.uuid4().hex[:12]
         path = directory / identifier
@@ -79,16 +81,42 @@ class Journal:
         return bool(data['stores']) and all(s['state'] == 'accepted' for s in data['stores'].values())
 
     @classmethod
-    def close_prepared(cls, request, identifier, root=None):
+    def load(cls, request, identifier, root=None):
         if not re.fullmatch(r'\d{8}T\d{6}-[a-f0-9]{12}', identifier):
             raise ValueError('invalid release run ID')
         path = application_root(request, root or state_root()) / identifier
         data = json.loads((path / 'run.json').read_text())
+        if (data['request']['application'] != request['application']
+                or data['request']['environment'] != request['environment']):
+            raise ValueError('release run belongs to another application/environment')
+        return cls(path, data)
+
+    @classmethod
+    def close_prepared(cls, request, identifier, root=None):
+        journal = cls.load(request, identifier, root)
+        data = journal.data
         if any(event.get('state') == 'transport' for event in data['events']):
             raise ValueError('transport was attempted; reconcile exact store state before closing any release')
-        journal = cls(path, data)
         journal.stage('closed_preparation')
         return journal
+
+    def transport_budget(self, store, retry_corrected=False):
+        events = [e for e in self.data['events'] if e.get('store') == store]
+        attempts = sum(e.get('state') == 'transport' for e in events)
+        if not attempts:
+            return 2
+        outcomes = [e['outcome'] for e in events if 'outcome' in e]
+        # Interrupted or ordinary failed tools are never silently reclassified
+        # as transient when the process restarts.
+        if not retry_corrected and (not outcomes or outcomes[-1] != 'transient'):
+            return 0
+        return max(2 - attempts, 0)
+
+    def outcome(self, store, outcome):
+        if outcome not in {'ok', 'failed', 'transient', 'unknown'}:
+            raise ValueError('invalid transport outcome')
+        self.data['events'].append(dict(store=store, outcome=outcome, at=now()))
+        self.save()
 
     def save(self):
         temporary = self.path / 'run.json.tmp'
@@ -164,7 +192,7 @@ class Journal:
             if path.parent == self.path:
                 continue
             data = json.loads(path.read_text())
-            if self.complete(data) or data.get('stage') == 'closed_preparation':
+            if self.complete(data) or data.get('stage') in CLOSED_STAGES:
                 completed.append((data['created'], path.parent))
         for _, path in sorted(completed, reverse=True)[max(keep - 1, 0):]:
             shutil.rmtree(path)

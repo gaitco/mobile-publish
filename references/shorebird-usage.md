@@ -24,7 +24,7 @@ Default threshold: `shorebird_warning_users = 400`; exactly 400 passes, 401 paus
 An explicit project override can adjust this positive integer. Do not raise it automatically.
 The organization-owner's patch quota is read with GET on the specific organization's
 usage endpoint. Show used/included/remaining installs when available, and label unavailable
-or incomplete usage. This needs no copying of the owner's login. A server-reported quota
+or incomplete usage, pausing for a decision. This needs no copying of the owner's login. A server-reported quota
 ceiling or paid overage also pauses even for a small app. No hardcoded prices or plans.
 
 Shorebird's [billing documentation](https://docs.shorebird.dev/account/billing/) counts

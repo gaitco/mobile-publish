@@ -170,3 +170,9 @@ The version code you just built should appear in that list.
 | `Only releases with status draft may be created on draft app` | The app itself is still a draft in Play Console; add `--release_status draft`. |
 | Listing text or screenshots disappeared | A `supply` run without the `skip_upload_*` flags overwrote them from a non-existent local metadata dir. |
 | Upload succeeds, testers see nothing | Internal track needs a tester list configured in the console, and testers must accept the opt-in link. |
+
+## Coordinated store evidence
+
+Use the [release lifecycle contract](release-lifecycle.md) to bind existing upload
+tools to the exact archived artifact and query acceptance separately. Successful
+transfer or a current-version list alone is not acceptance/allocation evidence.

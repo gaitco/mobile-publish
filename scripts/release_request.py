@@ -124,6 +124,8 @@ def resolve(start, store='all', operation='store_upload', environment=None,
     identities = profile.get('identities', {})
     if not isinstance(identities, dict):
         raise ValueError('identities must map approved stores to application IDs')
+    if set(identities) != set(load_policy(app, 'all').stores):
+        raise ValueError('release identities must cover the entire approved store policy for a stable application lock')
     if any(not re.fullmatch(r'[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+', identities.get(s, '')) for s in policy.stores):
         raise ValueError('record reviewed application identities for selected stores in release profile')
     env = profile.get('environment')
@@ -136,6 +138,8 @@ def resolve(start, store='all', operation='store_upload', environment=None,
         if not project_file(app, name).is_file():
             raise ValueError('referenced build input is missing')
     inputs = [PROFILE, 'pubspec.yaml', 'mobile-publish.config.json', *defines]
+    if profile.get('target'):
+        inputs.append(profile['target'])
     if policy.runtime == 'shorebird':
         inputs.append('shorebird.yaml')
     if any(not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+', value)

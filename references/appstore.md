@@ -139,3 +139,9 @@ app, create the app record and a version in the console before running it.
 | `Invalid Signature` / missing entitlements | Built without a distribution profile. Archive once from Xcode to fix signing. |
 | Build uploaded but absent from TestFlight | **Usually a processing rejection, not lag.** See below. |
 | `flutter build ipa` fails with no signing identity | No distribution certificate on this Mac. Xcode → Settings → Accounts → Manage Certificates. **Do not diagnose this with `security find-identity -v -p codesigning`** — it can list no distribution identity on a machine where `flutter build ipa` signs perfectly well via automatic signing. Try the build before concluding you are blocked. |
+
+## Coordinated store evidence
+
+Use the [release lifecycle contract](release-lifecycle.md) to bind existing upload
+tools to the exact archived artifact and query acceptance separately. Successful
+transfer or a current-version list alone is not acceptance/allocation evidence.

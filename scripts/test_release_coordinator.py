@@ -62,7 +62,7 @@ if action=='status':
  'publish_authorized':os.environ.get('READ_ONLY')!='1'}));sys.exit()
 if action=='upload':
  if store==os.environ.get('FAIL_STORE'):
-  print('https://signed.invalid?token=SECRET',file=sys.stderr);sys.exit(1)
+  print('https://signed.invalid?token=SECRET',file=sys.stderr);sys.exit(int(os.environ.get('FAIL_CODE','1')))
  states[store]='processing' if os.environ.get('PROCESSING') else 'accepted'
  remote.write_text(json.dumps(states))
 ''')
@@ -119,7 +119,7 @@ if action=='upload':
         self.assertNotEqual(first.returncode, 0)
         self.assertNotIn('SECRET', first.stdout + first.stderr)
         self.env.pop('FAIL_STORE')
-        final = self.run_release('--upload-prepared')
+        final = self.run_release('--upload-prepared', '--retry-corrected')
         self.assertEqual(final.returncode, 0, final.stderr)
         self.assertEqual(self.calls().count('build'), 1)
         self.assertEqual(self.calls().count('upload'), 3)
@@ -156,6 +156,39 @@ if action=='upload':
         Path(self.env['TEST_STATE']).write_text('{"play":"accepted"}')
         self.assertNotEqual(self.run_release('--prepare').returncode, 0)
         self.assertNotIn('build', self.calls())
+
+    def test_retry_budget_survives_multiple_resumes(self):
+        self.assertEqual(self.run_release('--prepare').returncode, 0)
+        self.env.update(FAIL_STORE='asc', FAIL_CODE='75')
+        for _ in range(3):
+            self.assertNotEqual(self.run_release('--upload-prepared').returncode, 0)
+        self.assertEqual(self.calls().count('upload'), 3)  # Play once, ASC at most twice.
+
+    def test_rejected_transport_can_be_reconciled_for_corrected_source(self):
+        self.assertEqual(self.run_release('--prepare').returncode, 0)
+        self.env['FAIL_STORE'] = 'asc'
+        self.assertNotEqual(self.run_release('--upload-prepared').returncode, 0)
+        journal = next(self.home.glob('.local/state/mobile-publish/*/*/run.json'))
+        run_id = json.loads(journal.read_text())['id']
+        Path(self.env['TEST_STATE']).write_text('{"play":"accepted","asc":"rejected"}')
+        result = self.run_release('--reconcile-run', run_id)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(journal.read_text())
+        self.assertEqual(state['stage'], 'closed_reconciled')
+        self.assertEqual(state['stores']['play']['state'], 'accepted')
+        self.assertEqual(state['stores']['asc']['state'], 'rejected')
+        (self.app / 'pubspec.yaml').write_text('name: corrected\nversion: 1.2.1+43\n')
+        Path(self.env['TEST_STATE']).write_text('{}')
+        self.env.pop('FAIL_STORE')
+        self.assertEqual(self.run_release('--prepare').returncode, 0)
+
+    def test_unknown_or_processing_cannot_be_closed_by_reconciliation(self):
+        self.assertEqual(self.run_release('--prepare').returncode, 0)
+        journal = next(self.home.glob('.local/state/mobile-publish/*/*/run.json'))
+        run_id = json.loads(journal.read_text())['id']
+        Path(self.env['TEST_STATE']).write_text('{"play":"processing"}')
+        self.assertNotEqual(self.run_release('--reconcile-run', run_id).returncode, 0)
+        self.assertNotEqual(json.loads(journal.read_text())['stage'], 'closed_reconciled')
 
 
 if __name__ == '__main__':

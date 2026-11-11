@@ -92,6 +92,8 @@ def run(args):
     request = resolve(args.app, args.store, args.operation, track=args.track)
     if request['operation'] != 'store_upload':
         raise ValueError('coordinator supports store_upload only; use the explicit operation runbook')
+    if args.retry_corrected and not args.upload_prepared:
+        raise ValueError('--retry-corrected is only for an inspected, fixed transport during upload resume')
     app = Path(request['app'])
     profile = read_profile(app)
     validate_profile(profile, request)
@@ -117,7 +119,11 @@ def run(args):
         if args.close_prepared:
             summary(Journal.close_prepared(request, args.close_prepared))
             return 0
-        journal = Journal.open(request)
+        journal = Journal.load(request, args.reconcile_run) if args.reconcile_run else Journal.open(request)
+        if args.reconcile_run:
+            request = journal.data['request']
+            if set(request['stores']) - set(profile['stores']):
+                raise ValueError('reconciliation needs status adapters for every original store')
         # All JSON contains only the normalized allowlisted request and hashes.
         request_path = journal.path / 'request.json'
         values = dict(skill=str(Path(__file__).resolve().parent.parent), request=str(request_path), version=request['version'],
@@ -140,6 +146,14 @@ def run(args):
 
         try:
             update_request()
+            if args.reconcile_run:
+                states = [query(store) for store in request['stores']]
+                if any(state not in {'accepted', 'rejected', 'absent'} for state in states):
+                    raise ValueError('store outcome is processing or unknown; preserve this run and query again later')
+                journal.stage('closed_reconciled')
+                journal.prune()
+                summary(journal)
+                return 0
             readiness(app, request, args.acknowledge_usage_warning)
             sdk = evidence(request['sdk']['command'] + ['--version', '--machine'], app, values)
             if sdk.get('frameworkVersion') != request['sdk']['version']:
@@ -204,11 +218,15 @@ def run(args):
                         result = execute(target['upload'], app, scoped, timeout=1800)
                     except ValueError:
                         # A timeout may have happened after acceptance. Query before any retry.
+                        journal.outcome(store, 'unknown')
                         return 'unknown'
                     journal.transition(store, 'processing', elapsed=time.monotonic() - started)
-                    return 'transient' if result.returncode == 75 else 'ok' if result.returncode == 0 else 'failed'
+                    outcome = 'transient' if result.returncode == 75 else 'ok' if result.returncode == 0 else 'failed'
+                    journal.outcome(store, outcome)
+                    return outcome
 
-                state = transfer(lambda: query(store), upload)
+                state = transfer(lambda: query(store), upload,
+                                 journal.transport_budget(store, args.retry_corrected))
                 if state == 'unknown':
                     journal.transition(store, 'unknown')
             journal.stage('accepted' if Journal.complete(journal.data) else 'needs_attention')
@@ -232,6 +250,8 @@ def main():
     mode.add_argument('--check', action='store_true')
     mode.add_argument('--check-online', action='store_true')
     mode.add_argument('--close-prepared', metavar='RUN_ID')
+    mode.add_argument('--reconcile-run', metavar='RUN_ID')
+    parser.add_argument('--retry-corrected', action='store_true')
     parser.add_argument('--acknowledge-usage-warning', action='store_true')
     return run(parser.parse_args())
 

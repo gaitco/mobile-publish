@@ -124,8 +124,11 @@ release, edit, organization or account.
 Adapters may poll processing with a bounded deadline; after it expires preserve
 `processing`/`unknown` and resume querying later. Upload exit 75 is reserved for
 a confirmed transient transport failure; the coordinator queries before retrying
-once. Generic nonzero, authorization, signing, processing and runner errors are
-not retry signals. Even exit 0 needs acceptance queried back. Never emit signed
+once, with at most two transport attempts per store across the entire durable run,
+including restarts. Generic nonzero, authorization, signing, processing and runner
+errors are not retry signals. After a concrete transport cause is inspected and
+fixed, `--upload-prepared --retry-corrected` permits only the remaining budget;
+it never resets the count. Do not use it merely to repeat an unchanged failure. Even exit 0 needs acceptance queried back. Never emit signed
 URLs, tokens, headers, full env dumps or raw API errors in evidence.
 
 ## Resume, coordination and retention
@@ -136,8 +139,14 @@ archived artifacts survive Flutter clean. Do not clean this directory to retry.
 The same resolved request resumes the same run; changed requests are refused
 while another run is pending. Inspect its journal first. An unused preparation
 can be closed with `--close-prepared RUN_ID`, then fixed source prepared anew.
-Closing is refused after any transport attempt; reconcile exact store state then
-resume the original artifacts. It never deletes a cloud baseline or rolls back.
+Closing an unused preparation is refused after any transport attempt. For a
+confirmed rejected/absent outcome, `--reconcile-run RUN_ID` queries every original
+app/version/build/track using the saved request, then closes the local run only if
+all targets are accepted/rejected/authoritatively absent. Processing/unknown block
+closure. Actual partial acceptance remains recorded; nothing is rolled back.
+A corrected source/version may then start a new run. Do not close and recreate a
+run to evade retry limits without resolving the concrete cause. Neither closure
+command deletes a cloud baseline or removes accepted releases.
 At most 20 completed/closed runs are retained per application/environment;
 pending runs and their required artifacts are never pruned automatically.
 
