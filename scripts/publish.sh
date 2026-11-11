@@ -16,6 +16,14 @@
 #
 set -uo pipefail
 
+# A reviewed profile selects the existing project tools. The coordinator owns
+# locking, immutable evidence, verification and all store uploads.
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+RESOLVED_APP=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from release_request import discover; print(discover(sys.argv[2]))' "$SCRIPT_DIR" "$PWD") || exit 1
+if [ -f "$RESOLVED_APP/mobile-publish.release.json" ]; then
+  exec python3 "$SCRIPT_DIR/release_coordinator.py" --app "$RESOLVED_APP" "$@"
+fi
+
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 STORE=all SUBMIT=0 TRACK=internal CHECK=0 MODE=prepare ONLINE=0 ACK_USAGE=0
 while [ $# -gt 0 ]; do
@@ -38,6 +46,8 @@ case "$STORE" in all|play|agc|asc) ;; *) die "unknown store: $STORE" ;; esac
 case "$TRACK" in internal|alpha|beta|production) ;; *) die "unsupported track: $TRACK" ;; esac
 [ "$SUBMIT" = 0 ] || [ "$STORE" = agc ] || die '--submit is supported only for --store agc; use the store-specific review workflow for Apple/Play'
 [ "$TRACK" != production ] || die 'production promotion requires the project-specific release workflow'
+[ "$MODE" != upload ] || die 'upload requires a reviewed mobile-publish.release.json profile and the durable coordinator; legacy preparation cannot authorize publication'
+[ "$SUBMIT" = 0 ] || die 'review submission uses the dedicated store runbook'
 log() { printf '\033[1m==> %s\033[0m\n' "$*" >&2; }
 
 # ---------------------------------------------------------------- discover the app
@@ -147,13 +157,14 @@ fi
 # Reusing arbitrary files in build/ can silently publish another revision/version.
 if [ "$MODE" = prepare ]; then
   check_readiness || die 'project access is not ready; no build started'
+  SDK_VERSION=$(python3 "$SCRIPT_DIR/sdk_guard.py" "$APP") || die 'project SDK is missing or differs from the existing pin'
   ( cd "$APP" && flutter clean && flutter pub get ) || die 'clean/dependency resolution failed'
   if [ "$RUNTIME" = shorebird ]; then
     platforms=()
     [ $((DO_PLAY + DO_AGC)) -eq 0 ] || platforms+=(android)
     [ "$DO_ASC" = 0 ] || platforms+=(ios)
     platform_list=$(IFS=,; echo "${platforms[*]}")
-    release_args=(release --platforms "$platform_list" --flutter-version system)
+    release_args=(release --platforms "$platform_list" --flutter-version "$SDK_VERSION")
     [ "$DO_AGC" = 0 ] || release_args+=(--artifact apk)
     log 'building with Shorebird and registering the new store-release baseline; no store upload or OTA patch'
     ( cd "$APP" && shorebird "${release_args[@]}" ) || die 'Shorebird release failed; inspect any partially registered baseline before retrying'
@@ -199,46 +210,3 @@ if [ "$MODE" = prepare ]; then
   log 'prepared only; no store upload or OTA patch performed. Inspect signatures, versions and runtime behavior, then use --upload-prepared with the same store/track.'
   exit 0
 fi
-python3 "$(dirname "$0")/prepared_release.py" verify "$MANIFEST" "$IDENTITY" "${artifacts[@]}" || die 'prepared artifact verification failed'
-check_readiness || die 'project access is not ready; no upload attempted'
-
-ok=() failed=()
-
-# ---------------------------------------------------------------- Google Play
-
-if [ "$DO_PLAY" = 1 ]; then
-  log "Google Play → track $TRACK"
-    if fastlane supply --json_key "$PLAY_KEY" --package_name "$PACKAGE" --aab "$AAB" \
-        --track "$TRACK" --skip_upload_metadata true --skip_upload_images true \
-        --skip_upload_screenshots true --skip_upload_changelogs true \
-        --release_status draft --changes_not_sent_for_review true; then
-      ok+=("play"); else failed+=("play"); fi
-fi
-
-# ---------------------------------------------------------------- Huawei AppGallery
-
-if [ "$DO_AGC" = 1 ]; then
-  log "Huawei AppGallery"
-  CMD=upload; [ "$SUBMIT" = 1 ] && CMD=publish
-  if AGC_KEY_FILE="$AGC_KEY" AGC_PACKAGE="$PACKAGE" python3 "$(dirname "$0")/agc.py" "$CMD" "$APK"; then
-    ok+=("appgallery"); else failed+=("appgallery"); fi
-fi
-
-# ---------------------------------------------------------------- Apple App Store
-
-if [ "$DO_ASC" = 1 ]; then
-  log "App Store Connect — $BUNDLE"
-  # Uploading to ASC is separate from submitting for App Store review.
-  # --wait propagates processing failures instead of treating transport as acceptance.
-  if ASC_KEY_ID="$ASC_KEY_ID" ASC_ISSUER_ID="$ASC_ISSUER_ID" \
-       ASC_PRIVATE_KEY_PATH="$ASC_P8" \
-       asc builds upload --app "$BUNDLE" --ipa "$IPA" --wait; then
-    ok+=("appstore"); else failed+=("appstore"); fi
-fi
-
-# ---------------------------------------------------------------- report
-
-echo
-log "done — succeeded: ${ok[*]:-none}   failed: ${failed[*]:-none}"
-[ "$SUBMIT" = 1 ] || echo "   review submission is a separate store-specific action; inspect any failed stores above" >&2
-[ ${#failed[@]} -eq 0 ]

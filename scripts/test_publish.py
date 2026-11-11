@@ -18,6 +18,7 @@ class PublisherTests(unittest.TestCase):
         self.app = self.root / 'project' / 'flutter'
         (self.app / 'android/app').mkdir(parents=True)
         (self.app / 'ios/Runner.xcodeproj').mkdir(parents=True)
+        (self.app / '.tool-versions').write_text('flutter 3.47.7\n')
         (self.app / 'pubspec.yaml').write_text('name: fixture\nversion: 1.2.0+42\n')
         self.set_policy('flutter', ['asc'])
         (self.app / 'android/app/build.gradle').write_text('applicationId "com.test.app"\n')
@@ -39,6 +40,7 @@ class PublisherTests(unittest.TestCase):
         for key in ['SHOREBIRD_TOKEN', 'ASC_KEY_ID', 'ASC_ISSUER_ID', 'ASC_PRIVATE_KEY_PATH']:
             self.env.pop(key, None)
         self.stub('flutter', '''
+if [ "$1" = --version ]; then echo '{"frameworkVersion":"3.47.7"}'; exit 0; fi
 echo "flutter $*" >> "$CALLS"
 if [ "$1" = clean ]; then rm -rf build; fi
 if [ "$1" = build ]; then
@@ -68,13 +70,12 @@ exit "${ASC_TEST_EXIT:-0}"
         return subprocess.run(['bash', str(SCRIPT), *args], cwd=self.app,
                               env=self.env, text=True, capture_output=True, timeout=10)
 
-    def test_upload_is_real_and_waits_for_apple_processing(self):
+    def test_legacy_upload_requires_coordinated_profile(self):
         self.assertEqual(self.run_publish('--store', 'asc').returncode, 0)
         result = self.run_publish('--store', 'asc', '--upload-prepared')
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0)
         calls = self.log.read_text()
-        self.assertIn('builds upload', calls)
-        self.assertIn('--wait', calls)
+        self.assertNotIn('builds upload', calls)
         self.assertNotIn('--validate-app', calls)
 
     def test_old_artifact_is_removed_before_build(self):
@@ -157,9 +158,9 @@ exit "${ASC_TEST_EXIT:-0}"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.log.write_text('')
         result = self.run_publish('--store', 'asc', '--upload-prepared')
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0)
         self.assertFalse(any(line.startswith('flutter ') for line in self.log.read_text().splitlines()))
-        self.assertIn('builds upload', self.log.read_text())
+        self.assertNotIn('builds upload', self.log.read_text())
 
     def enable_shorebird(self):
         self.set_policy('shorebird', ['asc'])
@@ -194,7 +195,7 @@ exit "${SHOREBIRD_TEST_EXIT:-0}"
         result = self.run_publish('--store', 'asc', '--prepare')
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.log.read_text()
-        self.assertIn('shorebird release --platforms ios --flutter-version system', calls)
+        self.assertIn('shorebird release --platforms ios --flutter-version 3.47.7', calls)
         self.assertNotIn('flutter build', calls)
         self.assertNotIn('builds upload', calls)
 
@@ -225,7 +226,7 @@ exit "${SHOREBIRD_TEST_EXIT:-0}"
         result = self.run_publish('--prepare')
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.log.read_text()
-        self.assertIn('shorebird release --platforms android,ios --flutter-version system --artifact apk', calls)
+        self.assertIn('shorebird release --platforms android,ios --flutter-version 3.47.7 --artifact apk', calls)
         self.assertNotIn('flutter build', calls)
 
     def test_missing_declared_shorebird_config_fails_before_build(self):
@@ -240,7 +241,7 @@ exit "${SHOREBIRD_TEST_EXIT:-0}"
         result = self.run_publish('--prepare')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn('UNEXPECTED_SHOREBIRD', self.log.read_text())
-        self.assertEqual(self.run_publish('--upload-prepared').returncode, 0)
+        self.assertNotEqual(self.run_publish('--upload-prepared').returncode, 0)
 
     def test_policy_change_invalidates_the_prepared_files(self):
         self.assertEqual(self.run_publish('--prepare').returncode, 0)

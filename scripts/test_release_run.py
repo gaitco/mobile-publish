@@ -67,6 +67,15 @@ class JournalTests(unittest.TestCase):
         journal.prune(keep=1)
         self.assertEqual(len(list(journal.path.parent.glob('*/run.json'))), 5)
 
+    def test_close_unused_preparation_allows_fixed_source_but_not_uncertain_upload(self):
+        journal = Journal.open(self.request, self.state)
+        Journal.close_prepared(self.request, journal.data['id'], self.state)
+        changed = Journal.open(dict(self.request, source='fixed'), self.state)
+        self.assertNotEqual(journal.data['id'], changed.data['id'])
+        changed.transition('play', 'transport')
+        with self.assertRaises(ValueError):
+            Journal.close_prepared(changed.data['request'], changed.data['id'], self.state)
+
 
 if __name__ == '__main__':
     unittest.main()

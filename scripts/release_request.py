@@ -69,7 +69,13 @@ def sdk_context(app, profile):
             workflows = root / '.github/workflows'
             if workflows.is_dir():
                 for path in sorted(workflows.glob('*.y*ml')):
-                    pins.extend(re.findall(r'flutter-version:\s*[\'"]?([^\s\'"#]+)', path.read_text()))
+                    text = path.read_text()
+                    for variable in re.findall(r'flutter-version:\s*\$\{\{\s*env\.(\w+)\s*\}\}', text):
+                        values = re.findall(r'^\s*' + re.escape(variable) + r':\s*[\'"]?([^\s\'"#]+)', text, re.M)
+                        if len(set(values)) != 1:
+                            raise ValueError('ambiguous CI SDK environment pin')
+                        text = re.sub(r'\$\{\{\s*env\.' + re.escape(variable) + r'\s*\}\}', values[0], text)
+                    pins.extend(re.findall(r'flutter-version:\s*[\'"]?([^\s\'"#]+)', text))
                 break
             if (root / '.git').exists():
                 break
@@ -116,6 +122,8 @@ def resolve(start, store='all', operation='store_upload', environment=None,
     if not version:
         raise ValueError('project needs an explicit marketing version and build number')
     identities = profile.get('identities', {})
+    if not isinstance(identities, dict):
+        raise ValueError('identities must map approved stores to application IDs')
     if any(not re.fullmatch(r'[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+', identities.get(s, '')) for s in policy.stores):
         raise ValueError('record reviewed application identities for selected stores in release profile')
     env = profile.get('environment')
@@ -130,11 +138,16 @@ def resolve(start, store='all', operation='store_upload', environment=None,
     inputs = [PROFILE, 'pubspec.yaml', 'mobile-publish.config.json', *defines]
     if policy.runtime == 'shorebird':
         inputs.append('shorebird.yaml')
+    if any(not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+', value)
+           for value in identities.values()):
+        raise ValueError('invalid application identity')
+    revision = subprocess.run(['git', '-C', str(app), 'rev-parse', '--verify', 'HEAD'], capture_output=True, text=True)
     return dict(application='|'.join(sorted(set(identities.values()))), app=str(app), operation=operation, runtime=policy.runtime,
                 stores=list(policy.stores), identities={s: identities[s] for s in policy.stores},
                 environment=env, track=track, version=version[1], build=version[2], sdk=sdk,
                 flavor=profile.get('flavor'), target=profile.get('target'),
-                defines_files=defines, source=source_snapshot(app, inputs))
+                defines_files=defines, revision=revision.stdout.strip() if revision.returncode == 0 else None,
+                source=source_snapshot(app, inputs))
 
 
 def main():

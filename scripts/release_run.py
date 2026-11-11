@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import time
 import uuid
+import re
 
 from prepared_release import digest
 
@@ -60,9 +61,9 @@ class Journal:
             data = json.loads(path.read_text())
             runs.append((path, data))
         for path, data in sorted(runs, key=lambda item: item[1]['created'], reverse=True):
-            if data['request'] == request:
+            if data['request'] == request and data.get('stage') != 'closed_preparation':
                 return cls(path.parent, data)
-        if any(not cls.complete(data) for _, data in runs):
+        if any(not cls.complete(data) and data.get('stage') != 'closed_preparation' for _, data in runs):
             raise ValueError('a different pending release exists; inspect it before starting another')
         identifier = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S-') + uuid.uuid4().hex[:12]
         path = directory / identifier
@@ -76,6 +77,18 @@ class Journal:
     @staticmethod
     def complete(data):
         return bool(data['stores']) and all(s['state'] == 'accepted' for s in data['stores'].values())
+
+    @classmethod
+    def close_prepared(cls, request, identifier, root=None):
+        if not re.fullmatch(r'\d{8}T\d{6}-[a-f0-9]{12}', identifier):
+            raise ValueError('invalid release run ID')
+        path = application_root(request, root or state_root()) / identifier
+        data = json.loads((path / 'run.json').read_text())
+        if any(event.get('state') == 'transport' for event in data['events']):
+            raise ValueError('transport was attempted; reconcile exact store state before closing any release')
+        journal = cls(path, data)
+        journal.stage('closed_preparation')
+        return journal
 
     def save(self):
         temporary = self.path / 'run.json.tmp'
@@ -100,7 +113,6 @@ class Journal:
         entry = {'state': state}
         # Store references are opaque IDs, never arbitrary tool output or URLs.
         if reference is not None:
-            import re
             if not isinstance(reference, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,200}', reference):
                 raise ValueError('unsafe store reference')
             entry['reference'] = reference
@@ -152,7 +164,7 @@ class Journal:
             if path.parent == self.path:
                 continue
             data = json.loads(path.read_text())
-            if self.complete(data):
+            if self.complete(data) or data.get('stage') == 'closed_preparation':
                 completed.append((data['created'], path.parent))
         for _, path in sorted(completed, reverse=True)[max(keep - 1, 0):]:
             shutil.rmtree(path)
