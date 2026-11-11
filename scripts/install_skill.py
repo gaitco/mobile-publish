@@ -81,16 +81,28 @@ def main():
         for target, _, revision in states:
             print(f'{target}: {revision}')
         return 0 if all(revision == args.revision for _, _, revision in states) else 1
-    for target, rules, revision in states:
+    # Fetch/prove every fast-forward before moving any existing HEAD or registering rules.
+    for target, _, revision in states:
         if revision == 'missing':
             target.parent.mkdir(parents=True, exist_ok=True)
-            git('clone', '--no-checkout', args.source, target)
+            git('clone', '--no-checkout', '--', args.source, target)
         if revision != args.revision:
             git('-C', target, 'fetch', '--no-tags', 'origin', args.revision)
+            if revision != 'missing':
+                ancestor = subprocess.run(['git', '-C', str(target), 'merge-base',
+                                           '--is-ancestor', revision, args.revision],
+                                          capture_output=True)
+                if ancestor.returncode:
+                    raise ValueError(f'{target}: local HEAD is ahead/diverged from the approved commit; left unchanged')
+    for target, _, revision in states:
+        if revision != args.revision:
             if revision == 'missing':
                 git('-C', target, 'checkout', '--detach', args.revision)
             else:
                 git('-C', target, 'merge', '--ff-only', args.revision)
+        if git('-C', target, 'rev-parse', 'HEAD') != args.revision:
+            raise ValueError(f'{target}: approved revision was not reached; registration stopped')
+    for target, rules, _ in states:
         if args.register:
             register_rule(rules)
         print(f'{target}: ready at {args.revision}')

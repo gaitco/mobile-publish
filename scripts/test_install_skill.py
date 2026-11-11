@@ -92,6 +92,21 @@ class InstallTests(unittest.TestCase):
         for target in ['.agents/skills/mobile-publish', '.claude/skills/mobile-publish']:
             self.assertFalse((self.home / target / '.config').exists())
 
+    def test_committed_local_work_is_not_mistaken_for_the_approved_revision(self):
+        self.assertEqual(self.run_installer().returncode, 0)
+        target = self.home / '.claude/skills/mobile-publish'
+        self.git('-C', str(target), 'config', 'user.email', 'fixture@example.invalid')
+        self.git('-C', str(target), 'config', 'user.name', 'Fixture')
+        (target / 'SKILL.md').write_text('my committed local work\n')
+        self.git('-C', str(target), 'add', 'SKILL.md')
+        self.git('-C', str(target), 'commit', '-qm', 'local work')
+        original = self.git('-C', str(target), 'rev-parse', 'HEAD')
+        result = self.run_installer('--register')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.git('-C', str(target), 'rev-parse', 'HEAD'), original)
+        self.assertFalse((self.home / '.codex/AGENTS.md').exists())
+        self.assertFalse((self.home / '.claude/CLAUDE.md').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

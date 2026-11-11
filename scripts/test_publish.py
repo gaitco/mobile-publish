@@ -170,7 +170,7 @@ if [ "$1" = api ]; then
   [ -z "${SHOREBIRD_AUTH_FAIL:-}" ] || exit 1
   case "$3" in
     /apps/fixture-app) echo '{"app_id":"fixture-app","organization_id":7,"display_name":"Fixture","created_at":"2026-01-01","updated_at":"2026-01-01"}' ;;
-    /organizations) echo '{"organizations":[{"organization":{"id":7},"role":"developer"}]}' ;;
+    /organizations/7) echo '{"organization":{"id":7},"role":"developer"}' ;;
     *) exit 1 ;;
   esac
   exit 0

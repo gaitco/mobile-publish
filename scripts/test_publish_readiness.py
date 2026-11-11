@@ -38,6 +38,10 @@ if route=='/apps/fixture-app':
 elif route=='/organizations':
     data={'organizations':[{'organization':{'id':7,'name':'Fixture','organization_type':'team',
           'created_at':'2026-01-01','updated_at':'2026-01-01'},'role':os.environ['ROLE']}]}
+elif route=='/organizations/7':
+    if os.environ['ROLE']=='none': sys.exit(1)
+    data={'organization':{'id':7,'name':'Fixture','organization_type':'team',
+          'created_at':'2026-01-01','updated_at':'2026-01-01'},'role':os.environ['ROLE']}
 elif route=='/users/me': data={'id':123,'email':'operator@example.invalid','display_name':'Operator'}
 elif route=='/apps/fixture-app/collaborators':
     data=[{'user_id':123,'email':'operator@example.invalid','role':os.environ['APP_ROLE']}]
@@ -95,6 +99,13 @@ print(json.dumps(data))
         original = (self.root / 'shorebird.yaml').read_bytes()
         self.assertNotEqual(self.run_check().returncode, 0)
         self.assertEqual((self.root / 'shorebird.yaml').read_bytes(), original)
+
+    def test_never_calls_cli_organization_listing_which_can_create_an_account_org(self):
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls.read_text().splitlines()
+        self.assertFalse(any(line.split()[:3] == ['api', 'GET', '/organizations'] for line in calls))
+        self.assertIn('api GET /organizations/7', calls)
 
 
 if __name__ == '__main__':

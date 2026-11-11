@@ -16,7 +16,7 @@ def can_publish(role):
     return isinstance(role, str) and role.lower().replace('_', '') in WRITERS
 
 
-def query(app, endpoint, paginate=False):
+def query(app, endpoint, paginate=False, allow_denied=False):
     command = ['shorebird', 'api', 'GET', endpoint]
     if paginate:
         command.append('--paginate')
@@ -26,6 +26,8 @@ def query(app, endpoint, paginate=False):
     except (OSError, subprocess.TimeoutExpired):
         raise ValueError('Shorebird access could not be verified; check your own CLI/access or the approved project CI') from None
     if result.returncode:
+        if allow_denied:
+            return None
         # CLI output may contain account details or credentials. Never echo it.
         raise ValueError('Shorebird read-only access check failed; verify your own account/app permissions or the approved CI')
     try:
@@ -50,14 +52,14 @@ def check_shorebird_access(app):
         raise ValueError('Shorebird is required by this project but not installed; no plain-Flutter fallback')
     app_id = app_id_from_config(app)
     metadata = query(app, f'/apps/{app_id}')
-    if not isinstance(metadata, dict) or metadata.get('app_id') != app_id or not metadata.get('organization_id'):
+    if (not isinstance(metadata, dict) or metadata.get('app_id') != app_id
+            or type(metadata.get('organization_id')) is not int or metadata['organization_id'] <= 0):
         raise ValueError('the intended Shorebird app/organization could not be verified')
-    memberships = query(app, '/organizations', paginate=True)
-    if not isinstance(memberships, dict) or not isinstance(memberships.get('organizations'), list):
-        raise ValueError('Shorebird organization permissions could not be verified')
-    for membership in memberships['organizations']:
-        if (isinstance(membership, dict)
-                and membership.get('organization', {}).get('id') == metadata['organization_id']
+    # Do NOT call GET /organizations: with x-cli-version it can create an org.
+    # The single-organization endpoint reads only, and may deny app-only collaborators.
+    membership = query(app, f'/organizations/{metadata["organization_id"]}', allow_denied=True)
+    if isinstance(membership, dict) and isinstance(membership.get('organization'), dict):
+        if (membership['organization'].get('id') == metadata['organization_id']
                 and can_publish(membership.get('role'))):
             return
     # Personal app collaborators can have write access without an organization role.
