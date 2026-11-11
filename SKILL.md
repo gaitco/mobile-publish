@@ -51,6 +51,9 @@ credentials. Run `publish.sh --check` first. This is a local check, not proof of
 or signing. Check the latest relevant CI run using `gh run list/view`; wait for a running
 gate, inspect failures, and fix causes before uploading. Report CI absence rather than
 assuming it passed. Never open an external browser for routine release work.
+If hosted CI cannot start because of billing/runner availability, run the applicable
+checks locally and explicitly report that hosted CI was blocked. Do not increase spending
+limits or install a persistent self-hosted runner without the user's instruction.
 
 Before a build, query each requested store for the current app/version, resolve a new build
 number, and verify the working tree contains the intended changes. File presence does not
@@ -100,7 +103,7 @@ Read the reference for the target store **after** the shared steps below:
 |---|---|---|
 | Huawei AppGallery | `references/appgallery.md` | `scripts/agc.py` (bundled) |
 | Google Play | `references/play.md` | the repo's fastlane lanes, else `fastlane supply` |
-| Apple App Store | `references/appstore.md` | `xcrun altool` (needs macOS + Xcode) |
+| Apple App Store | `references/appstore.md` | `asc builds upload --wait` |
 
 Cross-store console configuration that publishing tooling does **not** create:
 `references/game-services.md` — achievements and leaderboards on Play Games Services / Game Center.
@@ -116,7 +119,8 @@ fallback and the explanation. Publishing configuration that already works is wor
 than consistency with a generic script.
 
 When the user names no store, publishing to every store the app has credentials for is the
-right reading of "upload it" — that is what `publish.sh` does by default. Only ask when
+right reading of "upload it" — use prepare, artifact inspection, then upload-prepared for
+that discovered store set. Only ask when
 they seem to want one specific store and it is genuinely ambiguous which.
 
 ## Step 1 — Establish what the release is

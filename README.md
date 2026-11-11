@@ -91,8 +91,10 @@ cd "/path/to/app project"
 # Codex installation; use ~/.claude/skills/mobile-publish for a Claude-only installation.
 MOBILE_PUBLISH_SKILL_DIR="$HOME/.agents/skills/mobile-publish"
 bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --help
-# Upload an already-built, verified artifact to Play only:
-bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play
+# Build fresh artifacts for Play only (does not upload):
+bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play --prepare
+# Inspect the new artifact, then upload those same bytes without rebuilding:
+bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play --upload-prepared
 ```
 
 ## What's in here

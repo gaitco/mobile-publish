@@ -7,7 +7,7 @@
 #   publish.sh --store play    # one store only  (play | agc | asc)
 #   publish.sh --check         # local readiness only; no build or upload
 #   publish.sh --build         # accepted for compatibility; builds are always clean
-#   publish.sh --submit        # also send for review / promote past the holding track
+#   publish.sh --store agc --upload-prepared --submit # AppGallery review, only when requested
 #
 # Everything else is discovered: the app module, the package name, the version, the
 # artifact paths, and the credentials. Nothing to configure per project.
