@@ -130,7 +130,7 @@ def resolve(start, store='all', operation='store_upload', environment=None,
     inputs = [PROFILE, 'pubspec.yaml', 'mobile-publish.config.json', *defines]
     if policy.runtime == 'shorebird':
         inputs.append('shorebird.yaml')
-    return dict(app=str(app), operation=operation, runtime=policy.runtime,
+    return dict(application='|'.join(sorted(set(identities.values()))), app=str(app), operation=operation, runtime=policy.runtime,
                 stores=list(policy.stores), identities={s: identities[s] for s in policy.stores},
                 environment=env, track=track, version=version[1], build=version[2], sdk=sdk,
                 flavor=profile.get('flavor'), target=profile.get('target'),
