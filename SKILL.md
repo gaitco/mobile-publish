@@ -75,7 +75,13 @@ Read a store reference when something fails, when the user wants a step this doe
 
 For a short request such as «ارفع», reuse the app's existing CI/release setup and central
 credentials. Run `publish.sh --check` first. This is a local check, not proof of store access
-or signing. Check the latest relevant CI run using `gh run list/view`; wait for a running
+or signing. For Shorebird use `--check-online` to verify the exact app and a release-capable
+role using authenticated GET requests before building; prepare/upload enforce this too.
+Standard Flutter projects do not invoke Shorebird at all. Missing access is resolved using
+the operator's own authorization or an already verified project CI; never share the owner's
+login, change the runtime or create a probe release. Store-specific permissions, signing
+and version availability still need the checks below; Shorebird readiness does not prove
+store access. Check the latest relevant CI run using `gh run list/view`; wait for a running
 gate, inspect failures, and fix causes before uploading. Report CI absence rather than
 assuming it passed. Never open an external browser for routine release work.
 If hosted CI cannot start because of billing/runner availability, run the applicable

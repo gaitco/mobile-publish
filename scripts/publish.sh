@@ -6,6 +6,7 @@
 #   publish.sh --upload-prepared # upload the exact artifacts inspected after preparation
 #   publish.sh --store play    # one store only  (play | agc | asc)
 #   publish.sh --check         # local readiness only; no build or upload
+#   publish.sh --check-online  # also verify Shorebird app and release role using GET only
 #   publish.sh --build         # accepted for compatibility; builds are always clean
 #   publish.sh --store agc --upload-prepared --submit # AppGallery review, only when requested
 #
@@ -15,13 +16,14 @@
 set -uo pipefail
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
-STORE=all SUBMIT=0 TRACK=internal CHECK=0 MODE=prepare
+STORE=all SUBMIT=0 TRACK=internal CHECK=0 MODE=prepare ONLINE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --store)  [ $# -ge 2 ] && [ -n "$2" ] || die '--store needs a value'; STORE="$2"; shift 2 ;;
     --track)  [ $# -ge 2 ] && [ -n "$2" ] || die '--track needs a value'; TRACK="$2"; shift 2 ;;
     --build)  shift ;;
     --check)  CHECK=1; shift ;;
+    --check-online) CHECK=1; ONLINE=1; shift ;;
     --prepare) MODE=prepare; shift ;;
     --upload-prepared) MODE=upload; shift ;;
     --submit) SUBMIT=1; shift ;;
@@ -138,6 +140,9 @@ command -v python3 >/dev/null || die 'python3 is not installed'
 [ "$DO_AGC" = 0 ] || command -v python3 >/dev/null || die 'python3 is not installed'
 [ "$DO_ASC" = 0 ] || command -v asc >/dev/null || die 'asc CLI is not installed'
 if [ "$CHECK" = 1 ]; then
+  if [ "$ONLINE" = 1 ]; then
+    python3 "$(dirname "$0")/publish_readiness.py" "$APP" --store "$STORE" || die 'online readiness check failed; no build or upload performed'
+  fi
   log 'local credentials and tools found (store permissions, signing and version availability still need verification)'
   exit 0
 fi
@@ -145,6 +150,7 @@ fi
 # One clean operation for all requested artifacts, before building any of them.
 # Reusing arbitrary files in build/ can silently publish another revision/version.
 if [ "$MODE" = prepare ]; then
+  python3 "$(dirname "$0")/publish_readiness.py" "$APP" --store "$STORE" || die 'project access is not ready; no build started'
   ( cd "$APP" && flutter clean && flutter pub get ) || die 'clean/dependency resolution failed'
   if [ "$RUNTIME" = shorebird ]; then
     platforms=()
@@ -198,6 +204,7 @@ if [ "$MODE" = prepare ]; then
   exit 0
 fi
 python3 "$(dirname "$0")/prepared_release.py" verify "$MANIFEST" "$IDENTITY" "${artifacts[@]}" || die 'prepared artifact verification failed'
+python3 "$(dirname "$0")/publish_readiness.py" "$APP" --store "$STORE" || die 'project access is not ready; no upload attempted'
 
 ok=() failed=()
 

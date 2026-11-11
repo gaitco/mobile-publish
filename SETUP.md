@@ -31,6 +31,7 @@ habit is to move keys straight from `~/Downloads` into `~/.config/` and never ne
 | `jq` | helper snippets | `brew install jq` |
 | `fastlane` | Play, App Store | `brew install fastlane` |
 | Xcode + command line tools | App Store only | Mac App Store |
+| `shorebird` | Projects explicitly configured for Shorebird only | Use the project's reviewed CLI/toolchain |
 
 Standard Flutter projects do not require Shorebird. Shorebird projects require their own
 authorized access; do not install it or borrow the owner's login as an incidental fallback.

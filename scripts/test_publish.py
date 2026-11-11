@@ -164,6 +164,15 @@ exit "${ASC_TEST_EXIT:-0}"
         (self.app / 'shorebird.yaml').write_text('app_id: fixture-app\n')
         self.stub('shorebird', '''
 echo "shorebird $*" >> "$CALLS"
+if [ "$1" = api ]; then
+  [ -z "${SHOREBIRD_AUTH_FAIL:-}" ] || exit 1
+  case "$3" in
+    /apps/fixture-app) echo '{"app_id":"fixture-app","organization_id":7,"display_name":"Fixture","created_at":"2026-01-01","updated_at":"2026-01-01"}' ;;
+    /organizations) echo '{"organizations":[{"organization":{"id":7},"role":"developer"}]}' ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
 mkdir -p build/ios/ipa build/app/outputs/bundle/release build/app/outputs/flutter-apk
 touch build/ios/ipa/fixture.ipa build/app/outputs/bundle/release/app-release.aab build/app/outputs/flutter-apk/app-release.apk
 exit "${SHOREBIRD_TEST_EXIT:-0}"
@@ -251,6 +260,22 @@ exit "${SHOREBIRD_TEST_EXIT:-0}"
         result = self.run_publish('--check')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.log.read_text(), '')
+
+    def test_shorebird_auth_failure_stops_before_clean_or_release(self):
+        self.enable_shorebird()
+        self.env['SHOREBIRD_AUTH_FAIL'] = '1'
+        result = self.run_publish('--prepare')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('flutter clean', self.log.read_text())
+        self.assertNotIn('shorebird release', self.log.read_text())
+
+    def test_online_check_is_read_only_and_does_not_build(self):
+        self.enable_shorebird()
+        result = self.run_publish('--check-online')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('shorebird api GET', self.log.read_text())
+        self.assertNotIn('flutter', self.log.read_text())
+        self.assertNotIn('shorebird release', self.log.read_text())
 
 
 if __name__ == '__main__':

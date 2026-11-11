@@ -29,6 +29,14 @@ dependencies/configuration before building. Keep central credentials out of logs
 CI uses its protected Shorebird authentication (normally `SHOREBIRD_TOKEN`), not a token
 checked into the project or passed as a literal argument.
 
+`publish.sh --check-online` checks the intended app and authenticated organization/app
+role through `shorebird api GET` only. The same check runs before cleaning/building and
+before transferring a prepared Shorebird release. Viewer, missing or unverified access
+blocks the helper without login/logout, token copying, initialization or a probe release.
+An older CLI/API unable to prove the role also stops with an explicit verification gap;
+use the reviewed project toolchain/CI rather than bypassing it. This check does not prove
+Apple/Google/Huawei upload permissions or distribution signing.
+
 ## New store version with Shorebird
 
 A new market release needs a new store build number. Use `shorebird release`, which
