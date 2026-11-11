@@ -1,14 +1,15 @@
 # Setup
 
-One credential per store, stored centrally, covering **every app** you publish. Do this once
-and no project ever asks again.
-
-If you find yourself creating a key per app, it was scoped too narrowly at creation.
+Use each operator's authorized credentials, stored outside Git. An account-level key can
+serve multiple apps when access was explicitly granted; app-scoped credentials are valid
+too. Installing this skill does not copy the owner's accounts or credentials.
+See [team publishing](references/team-publishing.md) and [project policy](references/project-policy.md).
 
 ## Where credentials are looked for
 
-`scripts/publish.sh` resolves each store in this order and **skips any store whose credential
-is missing** rather than failing, so you can set up one store now and the rest later.
+`scripts/publish.sh` resolves credentials only for the selected project destinations.
+A missing selected credential blocks the operation before building; it is never silently
+skipped or treated as a successful multi-store upload.
 
 | Store | Resolution order |
 |---|---|
@@ -31,7 +32,8 @@ habit is to move keys straight from `~/Downloads` into `~/.config/` and never ne
 | `fastlane` | Play, App Store | `brew install fastlane` |
 | Xcode + command line tools | App Store only | Mac App Store |
 
-No gems, plugins, or per-project config beyond this.
+Standard Flutter projects do not require Shorebird. Shorebird projects require their own
+authorized access; do not install it or borrow the owner's login as an incidental fallback.
 
 ---
 

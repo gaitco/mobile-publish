@@ -7,8 +7,10 @@ description: Use for mobile store uploads with or without Shorebird, Shorebird O
 
 ## Choose the release path first
 
-Inspect the app module, `shorebird.yaml`, existing release scripts/CI and release records
-before choosing a builder. Keep the app's existing runtime and store identities.
+For every mobile-upload request, including «ارفع» in an app context, use this skill first.
+Read `mobile-publish.config.json` in the app module, existing release scripts/CI and release
+records before choosing a builder. Keep the app's existing runtime and store identities.
+See [project policy](references/project-policy.md) and [team access](references/team-publishing.md).
 
 | App/request | Build and delivery path |
 |---|---|
@@ -48,7 +50,8 @@ bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play --upload-prepar
 # Builds are always clean. --submit is supported only for --store agc.
 ```
 
-For apps with `shorebird.yaml`, the helper selects Shorebird automatically. Preparation
+The reviewed project policy selects Shorebird; a file or installed CLI alone does not.
+For Shorebird projects, preparation
 registers a new baseline with Shorebird; it does **not** upload to a store or publish an
 OTA patch. Verify Shorebird app/release access first. It pins the builder to system Flutter;
 use the project's release workflow when another SDK or extra build flags are required.
@@ -63,7 +66,7 @@ It discovers the Flutter module, the `applicationId`, the version, the artifact 
 the credentials on its own. **Do not ask the user for a package name, an app ID, a
 credential path, or a store configuration before running it** — those questions are the
 thing this skill exists to eliminate. If a credential really is missing, the script says
-which store it skipped and why; only then is there something to ask about.
+which selected prerequisite is missing and stops; only then is there something to ask about.
 
 Read a store reference when something fails, when the user wants a step this doesn't cover
 (promotion, changelogs, first-time listing), or when you need to explain what happened.
@@ -142,10 +145,11 @@ changelog handling, which track is safe. Use what is there and treat this skill 
 fallback and the explanation. Publishing configuration that already works is worth more
 than consistency with a generic script.
 
-When the user names no store, publishing to every store the app has credentials for is the
-right reading of "upload it" — use prepare, artifact inspection, then upload-prepared for
-that discovered store set. Only ask when
-they seem to want one specific store and it is genuinely ambiguous which.
+When the user names no store, use the project's approved store list. Credentials on this
+machine never add a destination. For an old standard Flutter project without policy,
+inspect its existing publishing setup and select a store explicitly, then record the
+reviewed configuration. A Shorebird project without policy needs that one-time decision
+recorded before the fallback builder runs. Do not create policy by guessing from user count.
 
 ## Step 1 — Establish what the release is
 

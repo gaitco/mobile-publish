@@ -36,7 +36,8 @@ builds the update-capable runtime and registers its baseline with Shorebird. The
 and upload **those exact artifacts** using the usual store transports. Registration with
 Shorebird does not upload the app to Google/Apple/Huawei and does not send users a patch.
 
-The shared `publish.sh --prepare` selects this path for `shorebird.yaml`, builds all selected
+The shared `publish.sh --prepare` selects this path for an explicit Shorebird project policy
+that agrees with `shorebird.yaml`, builds all selected
 platforms with `shorebird release --platforms ... --flutter-version system`, and records
 artifact hashes plus the Shorebird configuration. With AppGallery selected it requests
 `--artifact apk`, producing APK/AAB from the Shorebird release rather than a separate plain

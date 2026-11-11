@@ -51,14 +51,10 @@ while [ "$d" != "/" ]; do
 done
 [ -n "$APP" ] || die "no pubspec.yaml found from $PWD upward — is this a Flutter repo?"
 
-# Preserve the app's update runtime. A plain Flutter build of a Shorebird app
-# would produce a store binary that cannot receive its intended OTA patches.
-RUNTIME=flutter
-if [ -f "$APP/shorebird.yaml" ]; then
-  RUNTIME=shorebird
-elif grep -q 'shorebird\.yaml' "$APP/pubspec.yaml"; then
-  die 'pubspec declares shorebird.yaml but it is missing; restore the app configuration before building'
-fi
+# Project policy, rather than the operator's account, selects runtime and stores.
+POLICY_OUTPUT=$(python3 "$(dirname "$0")/publish_policy.py" "$APP" --store "$STORE") || die 'project policy could not be resolved'
+RUNTIME=$(printf '%s\n' "$POLICY_OUTPUT" | sed -n '1p')
+SELECTED_STORES=$(printf '%s\n' "$POLICY_OUTPUT" | sed -n '2p')
 
 GRADLE=''
 for candidate in "$APP/android/app/build.gradle.kts" "$APP/android/app/build.gradle"; do
@@ -89,7 +85,7 @@ log "runtime: $RUNTIME (store release; this command never publishes OTA patches)
 
 # ---------------------------------------------------------------- decide the stores
 
-want() { [ "$STORE" = all ] || [ "$STORE" = "$1" ]; }
+want() { case " $SELECTED_STORES " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 AGC_KEY="${AGC_KEY_FILE:-}"
 for c in "$APP/android/agc-service-account.json" "$HOME/.config/agc/service-account.json"; do
@@ -104,23 +100,25 @@ done
 
 # App Store Connect: key id + issuer id from env or the shared config; the .p8 itself
 # must sit in ~/.appstoreconnect/private_keys/ where Apple's tools look for it.
-# shellcheck source=/dev/null
-[ -f "$HOME/.config/asc/config" ] && { set -a; . "$HOME/.config/asc/config"; set +a; }
 ASC_OK=0
-ASC_P8="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID:-}.p8"
-[ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] \
-  && [ -f "$ASC_P8" ] && ASC_OK=1
+ASC_P8=''
+if want asc; then
+  # shellcheck source=/dev/null
+  [ -f "$HOME/.config/asc/config" ] && { set -a; . "$HOME/.config/asc/config"; set +a; }
+  ASC_P8="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID:-}.p8"
+  [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] \
+    && [ -f "$ASC_P8" ] && ASC_OK=1
+fi
 
 DO_PLAY=0; DO_AGC=0; DO_ASC=0
 want play && [ -n "$PLAY_KEY" ] && DO_PLAY=1
 want agc  && [ -n "$AGC_KEY"  ] && DO_AGC=1
 want asc  && [ "$ASC_OK" = 1 ] && [ -n "$BUNDLE" ] && DO_ASC=1
 
-want play && [ -z "$PLAY_KEY" ] && echo "  (skipping Play — no credential found)" >&2
-want agc  && [ -z "$AGC_KEY"  ] && echo "  (skipping AppGallery — no credential found)" >&2
+want play && [ "$DO_PLAY" = 0 ] && die 'Play is selected but its credential is missing'
+want agc && [ "$DO_AGC" = 0 ] && die 'AppGallery is selected but its credential is missing'
 if want asc && [ "$DO_ASC" = 0 ]; then
-  if [ -z "$BUNDLE" ]; then echo "  (skipping App Store — no ios/Runner.xcodeproj)" >&2
-  else echo "  (skipping App Store — set ASC_KEY_ID/ASC_ISSUER_ID in ~/.config/asc/config)" >&2; fi
+  die 'App Store is selected but its app configuration or credential is missing'
 fi
 [ $((DO_PLAY + DO_AGC + DO_ASC)) -gt 0 ] || die "no store to publish to"
 [ "$DO_PLAY" = 0 ] || [ -r "$PLAY_KEY" ] || die 'configured Play credential is missing or unreadable'
@@ -191,6 +189,7 @@ artifacts=()
 [ "$DO_AGC" = 0 ] || artifacts+=("$APK")
 [ "$DO_ASC" = 0 ] || artifacts+=("$IPA")
 [ "$RUNTIME" != shorebird ] || artifacts+=("$APP/shorebird.yaml")
+[ ! -f "$APP/mobile-publish.config.json" ] || artifacts+=("$APP/mobile-publish.config.json")
 MANIFEST="$APP/build/mobile-publish.json"
 IDENTITY="$PACKAGE|$BUNDLE|$VERSION|$DO_PLAY|$DO_AGC|$DO_ASC|$TRACK|$RUNTIME"
 if [ "$MODE" = prepare ]; then

@@ -1,5 +1,6 @@
 """Exercise the release entrypoint without network access or real credentials."""
 import os
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -18,6 +19,7 @@ class PublisherTests(unittest.TestCase):
         (self.app / 'android/app').mkdir(parents=True)
         (self.app / 'ios/Runner.xcodeproj').mkdir(parents=True)
         (self.app / 'pubspec.yaml').write_text('name: fixture\nversion: 1.2.0+42\n')
+        self.set_policy('flutter', ['asc'])
         (self.app / 'android/app/build.gradle').write_text('applicationId "com.test.app"\n')
         (self.app / 'ios/Runner.xcodeproj/project.pbxproj').write_text(
             'PRODUCT_BUNDLE_IDENTIFIER = com.test.ios;\n')
@@ -56,6 +58,10 @@ exit "${ASC_TEST_EXIT:-0}"
         path.write_text('#!/bin/bash\n' + body)
         path.chmod(0o755)
 
+    def set_policy(self, runtime, stores):
+        (self.app / 'mobile-publish.config.json').write_text(json.dumps(
+            dict(schema_version=1, runtime=runtime, stores=stores)))
+
     def run_publish(self, *args):
         return subprocess.run(['bash', str(SCRIPT), *args], cwd=self.app,
                               env=self.env, text=True, capture_output=True, timeout=10)
@@ -85,6 +91,7 @@ exit "${ASC_TEST_EXIT:-0}"
         self.assertEqual(self.log.read_text(), '')
 
     def test_missing_explicit_store_fails_before_building_others(self):
+        self.set_policy('flutter', ['play'])
         result = self.run_publish('--store', 'play')
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.log.read_text(), '')
@@ -108,6 +115,7 @@ exit "${ASC_TEST_EXIT:-0}"
         self.assertEqual(self.log.read_text(), '')
 
     def test_configured_missing_play_key_fails_without_build(self):
+        self.set_policy('flutter', ['play'])
         self.env['PLAY_STORE_JSON_KEY'] = str(self.root / 'missing.json')
         self.stub('fastlane', 'echo "fastlane $*" >> "$CALLS"\n')
         result = self.run_publish('--store', 'play')
@@ -115,6 +123,7 @@ exit "${ASC_TEST_EXIT:-0}"
         self.assertEqual(self.log.read_text(), '')
 
     def test_existing_lanes_require_inspection_before_build(self):
+        self.set_policy('flutter', ['play'])
         key = self.root / 'play.json'
         key.write_text('{}')
         self.env['PLAY_STORE_JSON_KEY'] = str(key)
@@ -151,6 +160,7 @@ exit "${ASC_TEST_EXIT:-0}"
         self.assertIn('builds upload', self.log.read_text())
 
     def enable_shorebird(self):
+        self.set_policy('shorebird', ['asc'])
         (self.app / 'shorebird.yaml').write_text('app_id: fixture-app\n')
         self.stub('shorebird', '''
 echo "shorebird $*" >> "$CALLS"
@@ -187,6 +197,7 @@ exit "${SHOREBIRD_TEST_EXIT:-0}"
 
     def test_shorebird_builds_both_android_formats_and_ios_together(self):
         self.enable_shorebird()
+        self.set_policy('shorebird', ['play', 'asc', 'agc'])
         key = self.root / 'credential.json'
         key.write_text('{}')
         self.env.update(PLAY_STORE_JSON_KEY=str(key), AGC_KEY_FILE=str(key))
@@ -202,6 +213,43 @@ exit "${SHOREBIRD_TEST_EXIT:-0}"
             pubspec.write('flutter:\n  assets:\n    - shorebird.yaml\n')
         result = self.run_publish('--store', 'asc', '--prepare')
         self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.log.read_text(), '')
+
+    def test_standard_developer_needs_no_shorebird_account_or_tool(self):
+        self.stub('shorebird', 'echo "UNEXPECTED_SHOREBIRD" >> "$CALLS"; exit 99\n')
+        result = self.run_publish('--prepare')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('UNEXPECTED_SHOREBIRD', self.log.read_text())
+        self.assertEqual(self.run_publish('--upload-prepared').returncode, 0)
+
+    def test_policy_change_invalidates_the_prepared_files(self):
+        self.assertEqual(self.run_publish('--prepare').returncode, 0)
+        self.set_policy('flutter', ['asc', 'play'])
+        self.log.write_text('')
+        result = self.run_publish('--store', 'asc', '--upload-prepared')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('builds upload', self.log.read_text())
+
+    def test_policy_prevents_accidental_store_and_runtime_changes(self):
+        key = self.root / 'agc.json'
+        key.write_text('{}')
+        self.env['AGC_KEY_FILE'] = str(key)
+        self.stub('shorebird', 'echo UNEXPECTED_SHOREBIRD >> "$CALLS"\n')
+        result = self.run_publish('--store', 'agc', '--prepare')
+        self.assertNotEqual(result.returncode, 0)
+        (self.app / 'shorebird.yaml').write_text('app_id: unexpected\n')
+        self.assertNotEqual(self.run_publish('--prepare').returncode, 0)
+        self.assertEqual(self.log.read_text(), '')
+
+    def test_play_only_never_loads_apple_configuration(self):
+        self.set_policy('flutter', ['play'])
+        key = self.root / 'play.json'
+        key.write_text('{}')
+        self.env['PLAY_STORE_JSON_KEY'] = str(key)
+        (self.home / '.config/asc/config').write_text('echo UNEXPECTED_APPLE >> "$CALLS"\n')
+        self.stub('fastlane', 'exit 0\n')
+        result = self.run_publish('--check')
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.log.read_text(), '')
 
 
