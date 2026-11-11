@@ -23,6 +23,7 @@ class ReadinessTests(unittest.TestCase):
         self.calls.touch()
         self.env = dict(os.environ, PATH=f'{self.bin}:/usr/bin:/bin', CALLS=str(self.calls),
                         ROLE='developer', APP_ROLE='', AUTH_FAIL='', WRONG_APP='')
+        self.env.pop('SHOREBIRD_TOKEN', None)
         tool = self.bin / 'shorebird'
         tool.write_text('''#!/usr/bin/env python3
 import json,os,sys

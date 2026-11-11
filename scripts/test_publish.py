@@ -36,6 +36,8 @@ class PublisherTests(unittest.TestCase):
         self.log.touch()
         self.env = dict(os.environ, HOME=str(self.home), PATH=f'{self.bin}:/usr/bin:/bin',
                         CALLS=str(self.log), PLAY_STORE_JSON_KEY='', AGC_KEY_FILE='')
+        for key in ['SHOREBIRD_TOKEN', 'ASC_KEY_ID', 'ASC_ISSUER_ID', 'ASC_PRIVATE_KEY_PATH']:
+            self.env.pop(key, None)
         self.stub('flutter', '''
 echo "flutter $*" >> "$CALLS"
 if [ "$1" = clean ]; then rm -rf build; fi

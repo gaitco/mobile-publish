@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Zero-configuration publisher. Run it from anywhere inside a Flutter/Android repo:
+# Project-policy publisher. Run it from anywhere inside a Flutter/Android repo:
 #
 #   publish.sh                 # prepare fresh store artifacts (Shorebird baseline may be registered)
 #   publish.sh --upload-prepared # upload the exact artifacts inspected after preparation
@@ -11,7 +11,7 @@
 #   publish.sh --store agc --upload-prepared --submit # AppGallery review, only when requested
 #
 # Everything else is discovered: the app module, the package name, the version, the
-# artifact paths, and the credentials. Nothing to configure per project.
+# artifact paths, and selected credentials. Runtime/stores follow project policy.
 #
 set -uo pipefail
 

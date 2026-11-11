@@ -373,9 +373,9 @@ Each store uses its own mechanism, described in its reference. Two rules hold ev
 destination. A transcript is a place secrets persist, so if the user pastes one anyway,
 use it, then tell them to rotate it.
 
-**One credential covers all their apps.** Both stores support an account-level credential
-granted access to every app. If you find yourself setting up a key per app, that is a sign
-the credential was scoped too narrowly at creation.
+Account-level credentials may cover multiple apps when granted access. App-scoped keys
+are also valid. Use the operator's existing approved scope; do not broaden permissions
+or borrow another developer's login to make a publishing command work.
 
 ## Working style
 

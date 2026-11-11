@@ -6,8 +6,8 @@
 
 A shared skill for [Codex](https://developers.openai.com/codex/) and
 [Claude Code](https://claude.com/claude-code) that builds and uploads a mobile app to
-**Google Play**, **Huawei AppGallery**, or the **Apple App Store** — one command, no
-per-project configuration.
+**Google Play**, **Huawei AppGallery**, or the **Apple App Store**, using each project's
+reviewed runtime/store policy and each operator's own authorized access.
 
 Maintained by [GAIT](https://gaitco.com).
 
@@ -19,7 +19,7 @@ skill never grants another developer's account access or copies their credential
 
 - **Without Shorebird:** clean Flutter store builds, artifact inspection, then upload.
 - **With Shorebird:** a new market version is built with `shorebird release` and its exact
-  artifacts go to the stores. The helper detects `shorebird.yaml` automatically; preparing
+  artifacts go to the stores. The helper checks project policy against `shorebird.yaml`; preparing
   registers a Shorebird baseline but performs no store upload or OTA publication.
 - **Explicit OTA request:** follow [the Shorebird workflow](references/shorebird.md).
   Both Android and iOS must pass dry-run builds and native/asset compatibility checks
@@ -150,7 +150,7 @@ bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play --upload-prepar
 
 Never committed. Each store's mechanism is documented in its reference; credentials are read
 from the macOS keychain, `~/.config/`, or the environment. One account-level credential covers
-every app — if you find yourself creating a key per app, it was scoped too narrowly.
+multiple apps when explicitly granted; app-scoped credentials are supported too.
 
 ## License
 

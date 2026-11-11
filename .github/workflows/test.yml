@@ -5,6 +5,7 @@ permissions:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-15]
     runs-on: ${{ matrix.os }}
@@ -12,4 +13,5 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: bash -n scripts/publish.sh
-      - run: python3 scripts/test_publish.py
+      - name: Run all skill regression tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -q
