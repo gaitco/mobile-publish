@@ -44,16 +44,7 @@ log() { printf '\033[1m==> %s\033[0m\n' "$*" >&2; }
 
 # The Flutter module is the directory holding pubspec.yaml. Repos here put it at the
 # root, or under flutter/ or mobile/, so search upward then one level down.
-APP=""
-d="$PWD"
-while [ "$d" != "/" ]; do
-  if [ -f "$d/pubspec.yaml" ]; then APP="$d"; break; fi
-  for sub in flutter mobile app; do
-    [ -f "$d/$sub/pubspec.yaml" ] && { APP="$d/$sub"; break 2; }
-  done
-  d=$(dirname "$d")
-done
-[ -n "$APP" ] || die "no pubspec.yaml found from $PWD upward — is this a Flutter repo?"
+APP=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from release_request import discover; print(discover(sys.argv[2]))' "$(dirname "$0")" "$PWD") || die 'application discovery failed; select the exact application module'
 
 # Project policy, rather than the operator's account, selects runtime and stores.
 POLICY_OUTPUT=$(python3 "$(dirname "$0")/publish_policy.py" "$APP" --store "$STORE") || die 'project policy could not be resolved'

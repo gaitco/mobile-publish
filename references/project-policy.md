@@ -34,3 +34,18 @@ the threshold when the user requests it; see [usage decisions](shorebird-usage.m
 For flavors, special build defines, a different pinned SDK or custom Fastlane lanes, keep
 the existing project workflow. The policy still applies to that workflow: an upload lane
 must not replace the project's selected runtime or expand its approved destinations.
+
+## Release context
+
+For coordinated releases, keep `mobile-publish.release.json` beside the policy. It
+references the existing build workflow; it does not replace the runtime/store policy.
+The resolver rejects multiple app modules, conflicting SDK pins and overrides of the
+reviewed environment/flavor/entrypoint. SDK priority: existing FVM/tool-versions pins,
+then a reviewed exact profile pin, then unambiguous existing CI flutter-version. Never
+resolve `latest`, a channel or `system` as an approved SDK version.
+
+`python3 scripts/release_request.py /path/to/app` is a read-only context report. It
+records source/input hashes, identities, version/build and file references, never define
+contents or credential values. Store upload is the default operation; OTA, review and
+runtime migration remain explicitly separate operations. The coordinator executes store
+uploads only; use their dedicated runbooks for the other operations.
