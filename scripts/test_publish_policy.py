@@ -66,6 +66,9 @@ class PolicyTests(unittest.TestCase):
             json.dumps(dict(schema_version=1, runtime='flutter', stores=['play', 'play'])),
             json.dumps(dict(schema_version=1, runtime='flutter', stores=['anything'])),
             json.dumps(dict(schema_version=1, runtime='flutter', stores=['play'], token='not-allowed')),
+            json.dumps(dict(schema_version=1, runtime='flutter', stores=['play'], shorebird_warning_users=0)),
+            json.dumps(dict(schema_version=1, runtime='flutter', stores=['play'], shorebird_warning_users=True)),
+            json.dumps(dict(schema_version=1, runtime='flutter', stores=['play'], shorebird_warning_users='400')),
         ]
         for sample in samples:
             with self.subTest(sample=sample):

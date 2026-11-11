@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 from publish_policy import load_policy
+from shorebird_usage import quota_description, usage_warning
 
 WRITERS = {'owner', 'admin', 'appmanager', 'developer'}
 
@@ -61,25 +62,47 @@ def check_shorebird_access(app):
     if isinstance(membership, dict) and isinstance(membership.get('organization'), dict):
         if (membership['organization'].get('id') == metadata['organization_id']
                 and can_publish(membership.get('role'))):
-            return
+            return metadata
     # Personal app collaborators can have write access without an organization role.
     user = query(app, '/users/me')
     collaborators = query(app, f'/apps/{app_id}/collaborators', paginate=True)
     if isinstance(user, dict) and user.get('id') and isinstance(collaborators, list):
         if any(isinstance(item, dict) and item.get('user_id') == user['id']
                and can_publish(item.get('role')) for item in collaborators):
-            return
+            return metadata
     raise ValueError('Shorebird release permission is missing or unverified; use your own authorized access or an approved CI workflow')
+
+
+def check_usage(app, policy, metadata, acknowledge=False):
+    try:
+        metrics = query(app, f'/apps/{metadata["app_id"]}/metrics/unique-users', allow_denied=True)
+    except ValueError:
+        metrics = None
+    try:
+        quota = query(app, f'/organizations/{metadata["organization_id"]}/usage', allow_denied=True)
+    except ValueError:
+        quota = None
+    warning = usage_warning(metrics, quota, policy.shorebird_warning_users)
+    if warning:
+        print(warning, file=sys.stderr)
+        if not acknowledge:
+            raise ValueError('Shorebird publishing paused for a user decision; use --acknowledge-usage-warning only after explicit approval of this operation')
+        print('تم الإقرار بالتنبيه لهذه العملية فقط؛ لم تُحفظ موافقة دائمة.', file=sys.stderr)
+    else:
+        print(f'الأجهزة النشطة في نافذة Shorebird: نحو {metrics["current"]["unique_users"]}؛ حد التنبيه: {policy.shorebird_warning_users}.')
+        print(quota_description(quota)[0])
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('app', type=Path)
     parser.add_argument('--store', default='all')
+    parser.add_argument('--acknowledge-usage-warning', action='store_true')
     args = parser.parse_args()
     policy = load_policy(args.app, args.store)
     if policy.runtime == 'shorebird':
-        check_shorebird_access(args.app)
+        metadata = check_shorebird_access(args.app)
+        check_usage(args.app, policy, metadata, args.acknowledge_usage_warning)
         print('Shorebird app and release role verified; store access/signing/version checks remain required')
     else:
         print('Standard Flutter project: no Shorebird account or tool required')

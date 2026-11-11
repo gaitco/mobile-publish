@@ -13,6 +13,7 @@ STORES = ('play', 'asc', 'agc')
 class PublishPolicy:
     runtime: str
     stores: tuple
+    shorebird_warning_users: int = 400
 
 
 def unique_keys(pairs):
@@ -40,8 +41,9 @@ def load_policy(app, requested='all'):
             raise ValueError('record approved project stores or select --store explicitly; credentials do not select stores')
         return PublishPolicy('flutter', (requested,))
     data = json.loads(config.read_text(), object_pairs_hook=unique_keys)
-    if not isinstance(data, dict) or set(data) != {'schema_version', 'runtime', 'stores'}:
-        raise ValueError('policy must contain only schema_version, runtime and stores; no credentials')
+    required = {'schema_version', 'runtime', 'stores'}
+    if not isinstance(data, dict) or not required.issubset(data) or set(data) - required - {'shorebird_warning_users'}:
+        raise ValueError('policy fields are schema_version, runtime, stores and optional shorebird_warning_users; no credentials')
     if type(data['schema_version']) is not int or data['schema_version'] != 1:
         raise ValueError('unsupported project policy schema')
     runtime, stores = data['runtime'], data['stores']
@@ -51,11 +53,14 @@ def load_policy(app, requested='all'):
         raise ValueError('stores must be a nonempty list of supported stores')
     if len(set(stores)) != len(stores):
         raise ValueError('duplicate project store')
+    warning_users = data.get('shorebird_warning_users', 400)
+    if type(warning_users) is not int or warning_users < 1:
+        raise ValueError('shorebird_warning_users must be a positive integer')
     if (runtime == 'shorebird') != shorebird.is_file():
         raise ValueError('runtime policy conflicts with Shorebird configuration; do not change the runtime automatically')
     if requested != 'all' and requested not in stores:
         raise ValueError('requested store is outside the approved project policy')
-    return PublishPolicy(runtime, tuple(stores if requested == 'all' else [requested]))
+    return PublishPolicy(runtime, tuple(stores if requested == 'all' else [requested]), warning_users)
 
 
 def main():

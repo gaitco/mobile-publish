@@ -15,6 +15,11 @@ non-secret project decisions. Example for an app approved for Play and Apple:
 `asc`, `agc`. The account used by the developer is not part of this file. Do not copy this
 example's stores into a project without checking its existing release setup.
 
+For Shorebird projects, optional `shorebird_warning_users` is a positive integer, default
+**400**. Publishing pauses when estimated active devices exceed it. This is a warning
+threshold, not a switch to uninstall Shorebird or a quota/billing setting. Only change
+the threshold when the user requests it; see [usage decisions](shorebird-usage.md).
+
 - Standard Flutter projects do not install or contact Shorebird, even when it is installed
   on the operator's machine. Domino is a standard Flutter project.
 - Shorebird projects keep their configured runtime. Missing local access or a conflicting

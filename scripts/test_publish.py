@@ -171,6 +171,15 @@ if [ "$1" = api ]; then
   case "$3" in
     /apps/fixture-app) echo '{"app_id":"fixture-app","organization_id":7,"display_name":"Fixture","created_at":"2026-01-01","updated_at":"2026-01-01"}' ;;
     /organizations/7) echo '{"organization":{"id":7},"role":"developer"}' ;;
+    /apps/fixture-app/metrics/unique-users) python3 - <<'PY'
+import json,os
+from datetime import datetime,timedelta,timezone
+now=datetime.now(timezone.utc)
+print(json.dumps({'as_of':now.isoformat(),'current':{'unique_users':int(os.environ.get('USERS','0')),
+    'range':{'start':(now-timedelta(days=28)).isoformat(),'end':now.isoformat()}},'previous':None,'granularity':None}))
+PY
+    ;;
+    /organizations/7/usage) echo '{"apps":[],"reported_overage":null,"position":{"installs":0,"included_installs":5000,"remaining_installs":5000,"at_ceiling":false,"consuming_overage":false}}' ;;
     *) exit 1 ;;
   esac
   exit 0
@@ -278,6 +287,19 @@ exit "${SHOREBIRD_TEST_EXIT:-0}"
         self.assertIn('shorebird api GET', self.log.read_text())
         self.assertNotIn('flutter', self.log.read_text())
         self.assertNotIn('shorebird release', self.log.read_text())
+
+    def test_large_population_stops_before_clean_and_before_store_upload(self):
+        self.enable_shorebird()
+        self.env['USERS'] = '401'
+        blocked = self.run_publish('--prepare')
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertNotIn('flutter clean', self.log.read_text())
+        self.assertNotIn('shorebird release', self.log.read_text())
+        allowed = self.run_publish('--prepare', '--acknowledge-usage-warning')
+        self.assertEqual(allowed.returncode, 0, allowed.stderr)
+        self.log.write_text('')
+        self.assertNotEqual(self.run_publish('--upload-prepared').returncode, 0)
+        self.assertNotIn('builds upload', self.log.read_text())
 
 
 if __name__ == '__main__':

@@ -30,6 +30,23 @@ Every store release is the same four moves — produce a signed artifact, prove 
 *right* signed artifact, push it to a holding area, and hand back the list of things only
 a human in the console can do. What changes per store is the transport and the traps.
 
+## Shorebird population and quota decision
+
+Before any Shorebird store release or OTA publication, run the read-only readiness/usage
+check described in [references/shorebird-usage.md](references/shorebird-usage.md), including
+when using a project's custom release workflow. By default, more than **400** estimated
+active devices pauses publishing. The project's optional `shorebird_warning_users` sets
+the threshold. Standard Flutter projects do not call Shorebird for this check.
+
+Show the user the warning and current quota information and wait for their choice:
+continue the specific Shorebird operation, or plan a separately authorized store release
+without Shorebird. Never automatically add `--acknowledge-usage-warning`, infer approval
+from a generic «ارفع», persist consent, raise the threshold, enable overages, delete a
+Shorebird app, or change runtime to get past this gate. Only use the acknowledgement flag
+after explicit approval of the warned operation. Missing/stale population data also pauses;
+unavailable account quota is labelled unknown, never zero. Successful patch installs use
+quota; active devices are a risk signal, not a guaranteed install count or a per-user fee.
+
 ## Start here: just publish it
 
 This skill works in Codex and Claude Code. Resolve `MOBILE_PUBLISH_SKILL_DIR` to the

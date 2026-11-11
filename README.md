@@ -17,6 +17,10 @@ skill never grants another developer's account access or copies their credential
 
 ## Supported publishing paths
 
+Shorebird publishing pauses above 400 estimated active devices by default so the user can
+review shared quota and choose whether to continue. This threshold is configurable per
+project; it never deletes/migrates an app automatically. See [usage warnings](references/shorebird-usage.md).
+
 - **Without Shorebird:** clean Flutter store builds, artifact inspection, then upload.
 - **With Shorebird:** a new market version is built with `shorebird release` and its exact
   artifacts go to the stores. The helper checks project policy against `shorebird.yaml`; preparing

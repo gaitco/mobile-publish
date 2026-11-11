@@ -66,6 +66,9 @@ baseline; do not blindly recreate Android or claim both platforms are ready.
 
 ## OTA patch: both platforms before either upload
 
+First apply the [population/quota decision gate](shorebird-usage.md). Recheck before the
+first upload after both platforms pass. A usage acknowledgement never waives compatibility.
+
 An OTA patch changes an existing Shorebird release, not its store version/build number.
 Do not use `publish.sh`, `shorebird release` or any store upload command for this path.
 
