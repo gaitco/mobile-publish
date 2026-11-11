@@ -404,3 +404,9 @@ so one stale build cannot block the rest.
 | `204144641 image's signature or data type is invalid` | Attaching screenshots through `app-file-info`. That path is for the icon; use the console. |
 | `jwt verify error` | PSS salt length wrong — must be `rsa_pss_saltlen:digest`, not `-1`. |
 | Submit rejected right after upload | AGC still processing the package; `agc.py submit` retries 5× at 60 s. |
+
+## Coordinated store evidence
+
+Use the [release lifecycle contract](release-lifecycle.md) to bind existing upload
+tools to the exact archived artifact and query acceptance separately. A successful
+transfer, current version listing or read permission is not publication evidence.

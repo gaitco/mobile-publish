@@ -89,7 +89,7 @@ print(json.dumps(data))
 
     def test_personal_app_collaborator_needs_their_own_matching_role(self):
         self.env.update(ROLE='none', APP_ROLE='developer')
-        result = self.run_check()
+        result = self.run_check('--acknowledge-usage-warning')
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_wrong_app_cannot_pass_preflight(self):

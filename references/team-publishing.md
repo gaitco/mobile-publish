@@ -46,3 +46,54 @@ the actions it will perform. Do not trigger a guessed workflow, add a billing pl
 a service account or install a persistent runner as a fallback. If no verified workflow
 exists, report exactly what needs a one-time setup. A lack of access never changes the
 project's runtime or turns a store request into an OTA patch.
+
+## Onboard and delivery context
+
+Run `python3 scripts/onboard.py /exact/app` from the installed skill to inventory
+policy, SDK pins, tools and existing lanes without running project code or reading
+credentials. Then use the [release lifecycle](release-lifecycle.md) adapters. Tool
+presence is not proof of account access or signing. For a colleague without the
+owner account, standard Flutter remains usable with their own store/signing access;
+a Shorebird application requires their own granted Shorebird access or approved CI.
+The regression suite simulates this; it does not configure Abdullah's real machine.
+
+Use hot reload for a developer's local edits. Use the project's existing APK,
+Play Internal or TestFlight distribution for team/client testing. A store-upload
+request creates a holding-area build; promoting a Play draft to testers or enabling
+TestFlight distribution must follow the requested existing distribution workflow.
+Do not create new flavors/apps/distribution services or add Shorebird automatically.
+
+Central publishing jobs must serialize by the exact application and environment,
+independent of branch. Example job fragment in the application's already trusted
+workflow (substitute the reviewed identity, not a user-controlled PR value):
+
+```yaml
+concurrency:
+  group: mobile-com-example-app-production
+  cancel-in-progress: false
+environment: mobile-production
+```
+
+Require protected manual/trusted dispatch, restrict permissions, and keep credentials
+out of PR tests. Ephemeral runners need approved private persistence for journals
+and archived artifacts; local state alone cannot resume across different runners.
+Check the selected run SHA and actual Linux/macOS results; a queued runner is not
+success. Measure journal phase durations and retry counts before claiming a speedup.
+
+## Read-only pilot — 2026-11-11
+
+No application was built, signed, uploaded, patched, installed or modified for this pilot.
+
+| Project | Existing evidence | Next integration before a real release |
+|---|---|---|
+| Domino | Flutter policy; Play+ASC; CI Flutter `3.44.0-0.2.pre`; existing Android build/upload/internal/production/verify lanes | Preserve that SDK and curated changelogs. The upload lane currently uses a fixed build path, so give its adapter the archived artifact explicitly. Configure exact store-status and QA evidence. Do not introduce Shorebird. |
+| 3M | Shorebird policy; Play+ASC; CI Flutter `3.47.7`; no existing Fastlane lanes discovered | Preserve Shorebird release builder and current baseline identities. Add reviewed store-status/upload/QA adapters using the operator's existing access. |
+
+Neither app currently contains the new coordinated profile. This task changes the
+shared skill repository only; these are integration requirements, not claims that
+application releases or Abdullah's device have been tested. Read-only onboard
+reports retain those access/signing states as unverified. On the next authorized
+release, the agent resolves the project integration from existing scripts and
+access, records it, and completes the requested release without asking routine
+technical questions. Missing real access or an unresolved product/cost decision
+is reported specifically.

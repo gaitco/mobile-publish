@@ -29,20 +29,27 @@ def active_devices(metrics, now):
 def quota_description(usage):
     position = usage.get('position') if isinstance(usage, dict) else None
     if not isinstance(position, dict):
-        return 'استهلاك الكوتا غير متاح لهذا الحساب؛ لا يُعتبر صفرًا.', False
+        return 'استهلاك الكوتا غير متاح لهذا الحساب؛ لا يُعتبر صفرًا.', True
     fields = [position.get('installs'), position.get('included_installs'), position.get('remaining_installs')]
     if all(type(value) is int and value >= 0 for value in fields):
         detail = f'الكوتا المشتركة: {fields[0]} تثبيت patch مستخدم، {fields[1]} ضمن الخطة، {fields[2]} متبقٍ حتى الحد.'
+        known = True
     elif (all(type(value) is int and value >= 0 for value in fields[:2])
           and 'remaining_installs' in position and position['remaining_installs'] is None
           and 'install_ceiling' in position and position['install_ceiling'] is None):
         detail = f'الكوتا المشتركة: {fields[0]} تثبيت patch مستخدم، {fields[1]} ضمن الخطة. لا يوجد حد إيقاف محدد؛ هذا لا يعني تثبيتات مجانية بلا حدود.'
+        known = True
     else:
         detail = 'تفاصيل الكوتا المشتركة غير مكتملة؛ لا يمكن حساب تكلفة دقيقة.'
+        known = False
+    near = (all(type(value) is int for value in fields[:2]) and fields[1] > 0
+            and fields[0] * 10 >= fields[1] * 9)
+    if near:
+        detail += ' استُهلك 90٪ أو أكثر من التثبيتات المشمولة؛ هذا حد تنبيه محلي وليس توقعًا لفاتورة.'
     costly = position.get('at_ceiling') is True or position.get('consuming_overage') is True
     if costly:
         detail += ' الحساب بلغ الحد أو يستهلك تثبيتات إضافية مدفوعة.'
-    return detail, costly
+    return detail, costly or near or not known
 
 
 def usage_warning(metrics, usage, threshold=400, *, now=None):

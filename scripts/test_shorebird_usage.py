@@ -20,6 +20,9 @@ class UsageTests(unittest.TestCase):
 
     def evaluate(self, users, quota=None, threshold=400):
         self.assertIsNotNone(usage_warning, 'usage guard is not implemented')
+        if quota is None:
+            quota = {'position': dict(installs=0, included_installs=5000,
+                                     remaining_installs=5000, at_ceiling=False, consuming_overage=False)}
         return usage_warning(self.metrics(users), quota, threshold, now=self.now)
 
     def test_warning_only_above_the_configured_user_boundary(self):
@@ -38,7 +41,13 @@ class UsageTests(unittest.TestCase):
         data = self.metrics(350)
         data['current']['time_series'] = [{'unique_users': 300}, {'unique_users': 300}]
         self.assertIsNotNone(usage_warning)
-        self.assertEqual(usage_warning(data, None, 400, now=self.now), '')
+        self.assertEqual(self.evaluate(data['current']['unique_users']), '')
+
+    def test_shared_quota_near_included_allowance_and_unknown_quota_pause(self):
+        quota = {'position': dict(installs=4500, included_installs=5000,
+                                 remaining_installs=500, at_ceiling=False, consuming_overage=False)}
+        self.assertTrue(self.evaluate(20, quota))
+        self.assertTrue(usage_warning(self.metrics(20), None, 400, now=self.now))
 
     def test_missing_malformed_or_stale_metrics_require_a_decision_not_zero_users(self):
         self.assertIsNotNone(usage_warning)

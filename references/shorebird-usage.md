@@ -60,3 +60,13 @@ standard Flutter release. Never delete it just because the count passed 400. Res
 exact app and preserve required release records before any separately authorized removal.
 See [uninstall](https://docs.shorebird.dev/code-push/uninstall/) and
 [cloud deletion](https://docs.shorebird.dev/code-push/delete/).
+
+## Shared-plan early warning
+
+The guard also pauses at **90% of the server-reported included patch installs**,
+even when the current app has only a few devices. This is an explicit local early
+warning boundary, not a Shorebird billing rule or forecast. Unknown/incomplete
+shared quota also needs a decision; it is not proof of free capacity. The existing
+400-device threshold remains per project, with 400 passing and 401 warning when
+quota is otherwise verified healthy. No subscription, ceiling or billing setting
+is modified. Account usage is shared; do not add per-app estimates to invent a bill.

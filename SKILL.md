@@ -55,81 +55,72 @@ absolute directory containing **this loaded SKILL.md**, not the app project. All
 relative to that directory. Read references there and invoke bundled shell/Python
 scripts through `bash`/`python3` using quoted absolute paths.
 
-Keep the command's working directory inside the target app project so discovery finds
-the correct app. For example, for the standard Codex installation:
+Run from the exact application module. Use [release lifecycle](references/release-lifecycle.md)
+to resolve the request, inspect the existing build/release setup, and create or reuse its
+reviewed `mobile-publish.release.json` adapters. Resolve technical inputs from the project;
+ask only when the application/environment/destination or a cost/runtime decision is truly
+unresolved. Preserve custom Fastlane lanes, curated metadata and changelogs.
 
 ```bash
 MOBILE_PUBLISH_SKILL_DIR="$HOME/.agents/skills/mobile-publish"
-bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play --prepare
-# Inspect the newly built artifact, then transfer those exact bytes:
-bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play --upload-prepared
-# --check inspects local tools/credentials without building or uploading.
-# Builds are always clean. --submit is supported only for --store agc.
+python3 "$MOBILE_PUBLISH_SKILL_DIR/scripts/onboard.py" .  # read-only local inventory
+bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --check
+bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --check-online
+bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --prepare
+bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --upload-prepared
 ```
 
-The reviewed project policy selects Shorebird; a file or installed CLI alone does not.
-For Shorebird projects, preparation
-registers a new baseline with Shorebird; it does **not** upload to a store or publish an
-OTA patch. Verify Shorebird app/release access first. It pins the builder to system Flutter;
-use the project's release workflow when another SDK or extra build flags are required.
+`--check` validates the reviewed context without executing project commands. `--check-online`
+uses the reviewed status adapters and, for Shorebird only, its read-only access/usage gate.
+It creates no pending release. Missing adapter/access evidence blocks publication; do not
+invent a success result or bypass the coordinator through the legacy uploader. For native
+Android/iOS use the project build tools with the same evidence rules and store references.
 
-Use the actual loaded path for Claude Code or a custom installation. Do not change into
-the skill directory to run the publisher. Check the project's existing publishing setup
-and complete the verification steps below before invoking an upload. The convenience
-script discovers Flutter modules; for native Android/iOS, use the project's build/release
-tooling and the relevant store reference instead.
-
-It discovers the Flutter module, the `applicationId`, the version, the artifact paths, and
-the credentials on its own. **Do not ask the user for a package name, an app ID, a
-credential path, or a store configuration before running it** — those questions are the
-thing this skill exists to eliminate. If a credential really is missing, the script says
-which selected prerequisite is missing and stops; only then is there something to ask about.
-
-Read a store reference when something fails, when the user wants a step this doesn't cover
-(promotion, changelogs, first-time listing), or when you need to explain what happened.
+For «ارفع», perform preparation and upload autonomously within the approved request.
+The split is a verification boundary, not another user permission prompt. Preparation can
+register a Shorebird baseline remotely; neither it nor any build is a read-only check.
+Store uploads never imply review submission, production promotion, OTA or runtime migration.
+Only store uploads run through this coordinator; the dedicated runbooks cover other operations.
 
 ## Fast repeatable releases
 
-For a short request such as «ارفع», reuse the app's existing CI/release setup and central
-credentials. Run `publish.sh --check` first. This is a local check, not proof of store access
-or signing. For Shorebird use `--check-online` to verify the exact app and a release-capable
-role using authenticated GET requests before building; prepare/upload enforce this too.
-Standard Flutter projects do not invoke Shorebird at all. Missing access is resolved using
-the operator's own authorization or an already verified project CI; never share the owner's
-login, change the runtime or create a probe release. Store-specific permissions, signing
-and version availability still need the checks below; Shorebird readiness does not prove
-store access. Check the latest relevant CI run using `gh run list/view`; wait for a running
-gate, inspect failures, and fix causes before uploading. Report CI absence rather than
-assuming it passed. Never open an external browser for routine release work.
-If hosted CI cannot start because of billing/runner availability, run the applicable
-checks locally and explicitly report that hosted CI was blocked. Do not increase spending
-limits or install a persistent self-hosted runner without the user's instruction.
+The coordinator fixes app/runtime/stores/environment/source/version/build/SDK inputs,
+checks all stores before building, takes an application/environment local lock, and keeps
+verified artifacts plus a private journal outside `build/`. Preparation resumes that run;
+`--upload-prepared` uses those archived bytes even after `flutter clean`. Source, SDK,
+policy, signing or artifact mismatches block it. Build commands must perform the project's
+analysis/tests and appropriate clean signed builds, preserving its flavor/target/defines.
 
-Before a build, query each requested store for the current app/version, resolve a new build
-number, and verify the working tree contains the intended changes. File presence does not
-prove account permissions. Use the installed `asc` CLI for Apple app/build lookup and
-processing verification; read command `--help` for the installed version. Keep credentials
-in their existing protected locations and use environment variables/file input, not values
-in command arguments or logs.
+Before the first upload, verify **all selected platforms'** native identity, distribution
+signature, approved certificate and dedicated-QA launch evidence. Use the bundled native
+verifier or an equivalent reviewed project verifier. The coordinator validates evidence;
+it cannot infer trustworthy store/launch proof from a successful shell exit alone.
 
-The shared script is the fallback for unflavored Flutter apps without custom Play lanes.
-It stops before building when flavors/custom lanes need inspection; use the project's
-actual lane and production flavor in those cases. All requested builds must finish and
-artifact verification below must pass before uploads. The script builds cleanly, but does
-not replace signature, permission/entitlement, runtime or cross-platform OTA checks.
-The default command prepares only and reports that nothing was uploaded. After inspection,
-`--upload-prepared` checks the saved artifact hashes, app/version and store/track selection;
-it refuses changed artifacts and never rebuilds between inspection and transfer. Perform
-both phases autonomously when the user requests an upload; this is a technical verification
-boundary, not a request for another user confirmation.
+A store status adapter must query the exact app/version/build/platform/track and distinguish
+absent, processing, accepted, rejected and unknown. An incomplete list cannot prove an
+unused number or authorize a retry. The project version source remains authoritative;
+resolve a verified higher number there under the release lock/central CI, never guess from
+one track or blindly increment after an upload failure. Existing remote builds without
+matching local preparation are duplicates requiring reconciliation, not success for new bytes.
 
-When a transport fails, inspect the store for the exact build before retrying; do not
-blindly upload again or bump a version to hide the error. Retry a transient network failure
-once after establishing that the build was not accepted. Fix concrete build/configuration
-causes within scope. Stop and report account permissions, missing credentials, store
-declarations or native/OTA incompatibility that cannot be resolved with existing access.
-Report separately: built, transferred, accepted/processed, and submitted for review.
-Preparing CI is not permission to upload an arbitrary current app version.
+A failed transfer is queried before retry; a proven transient transport may retry once.
+Processing/rejection/unknown states do not become success. Resume skips already accepted
+stores, reports partial publication and never rolls back automatically. See the journal's
+per-stage timings before claiming faster releases. No account or credential is copied.
+
+For team coordination, use the existing trusted release CI with concurrency by application
+and environment. A local lock cannot serialize another developer's computer. Keep PR tests
+secret-free; do not execute publishing from an untrusted PR. Check actual CI outcomes using
+`gh run list/view`; distinguish runner queue/capacity, billing, network and build failures.
+Use an already approved local environment when appropriate; never change spending or install
+a persistent runner as a workaround. Use CLI/API/headless verification, no external browser.
+
+Choose the delivery context deliberately: local hot reload for development, existing
+APK/Play Internal/TestFlight for team tests, approved store releases for users. Domino
+stays standard Flutter. Shorebird apps keep their runtime and use the operator's own
+access or approved CI. Unknown usage, more than 400 active devices (default), 90% of the
+shared included patch allowance, ceiling or paid-overage warnings pause for the user's
+specific decision. Acknowledgement never waives access/signing/OTA compatibility gates.
 
 ## Credentials live centrally, and are almost certainly already there
 
@@ -183,9 +174,10 @@ after the upload finishes, which is the slowest possible way to discover it.
 grep '^version:' pubspec.yaml        # Flutter: version: 1.0.8+8  → name 1.0.8, code 8
 ```
 
-Every store requires the version code to *increase* relative to what that store already
-has. The stores count independently — Play at 42 and AppGallery at 3 is normal — so
-check against the target store, not against a number in the repo.
+Check the selected platform/store's numbering rules and the project's version source.
+Play codes are shared across tracks, including previously used codes no longer visible
+on a track. A list of current track codes is incomplete allocation evidence. Do not infer
+an unused number from it or silently alter the source version after a transport failure.
 
 ## Step 2 — Build
 
@@ -331,8 +323,9 @@ it is the only way to catch a store that reports success and then silently disca
 
 ```bash
 # Play — what the track actually holds
-fastlane run google_play_track_version_codes \
-  package_name:<pkg> track:internal json_key:<key>           # → Result: [7]
+# Read-only release summaries (authenticate in memory through existing tooling):
+GET /androidpublisher/v3/applications/<pkg>/tracks/internal/releases
+# Paginate; current-track evidence alone does not prove a code was never used.
 
 # App Store Connect — the ONLY proof an iOS upload survived
 #   (needs an ASC API JWT; altool cannot answer this)
