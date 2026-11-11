@@ -2,3 +2,5 @@ interface:
   display_name: "Mobile Publish"
   short_description: "Publish mobile apps with or without Shorebird"
   default_prompt: "Use $mobile-publish to publish this app, preserving its existing Shorebird or standard build setup and checking Android and iOS compatibility before any OTA patch."
+policy:
+  allow_implicit_invocation: true

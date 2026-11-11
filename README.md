@@ -11,6 +11,10 @@ per-project configuration.
 
 Maintained by [GAIT](https://gaitco.com).
 
+For team installation and automatic mobile-upload routing, use the version-pinned
+installer described in [team publishing](references/team-publishing.md). Installing a
+skill never grants another developer's account access or copies their credentials.
+
 ## Supported publishing paths
 
 - **Without Shorebird:** clean Flutter store builds, artifact inspection, then upload.
