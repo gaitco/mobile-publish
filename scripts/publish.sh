@@ -2,7 +2,7 @@
 #
 # Zero-configuration publisher. Run it from anywhere inside a Flutter/Android repo:
 #
-#   publish.sh                 # prepare fresh artifacts for inspection (no upload)
+#   publish.sh                 # prepare fresh store artifacts (Shorebird baseline may be registered)
 #   publish.sh --upload-prepared # upload the exact artifacts inspected after preparation
 #   publish.sh --store play    # one store only  (play | agc | asc)
 #   publish.sh --check         # local readiness only; no build or upload
@@ -51,6 +51,15 @@ while [ "$d" != "/" ]; do
 done
 [ -n "$APP" ] || die "no pubspec.yaml found from $PWD upward — is this a Flutter repo?"
 
+# Preserve the app's update runtime. A plain Flutter build of a Shorebird app
+# would produce a store binary that cannot receive its intended OTA patches.
+RUNTIME=flutter
+if [ -f "$APP/shorebird.yaml" ]; then
+  RUNTIME=shorebird
+elif grep -q 'shorebird\.yaml' "$APP/pubspec.yaml"; then
+  die 'pubspec declares shorebird.yaml but it is missing; restore the app configuration before building'
+fi
+
 GRADLE=''
 for candidate in "$APP/android/app/build.gradle.kts" "$APP/android/app/build.gradle"; do
   if [ -f "$candidate" ]; then GRADLE="$candidate"; break; fi
@@ -76,6 +85,7 @@ BUNDLE=""
 
 log "$NAME — $PACKAGE — version $VERSION"
 log "module: $APP"
+log "runtime: $RUNTIME (store release; this command never publishes OTA patches)"
 
 # ---------------------------------------------------------------- decide the stores
 
@@ -125,6 +135,7 @@ fi
 # Fail before an expensive build when a required local tool is missing.
 command -v flutter >/dev/null || die 'flutter is not installed'
 command -v python3 >/dev/null || die 'python3 is not installed'
+[ "$RUNTIME" != shorebird ] || command -v shorebird >/dev/null || die 'Shorebird app detected but shorebird CLI is not installed; do not fall back to flutter build'
 [ "$DO_PLAY" = 0 ] || command -v fastlane >/dev/null || die 'fastlane is not installed'
 [ "$DO_AGC" = 0 ] || command -v python3 >/dev/null || die 'python3 is not installed'
 [ "$DO_ASC" = 0 ] || command -v asc >/dev/null || die 'asc CLI is not installed'
@@ -137,12 +148,22 @@ fi
 # Reusing arbitrary files in build/ can silently publish another revision/version.
 if [ "$MODE" = prepare ]; then
   ( cd "$APP" && flutter clean && flutter pub get ) || die 'clean/dependency resolution failed'
+  if [ "$RUNTIME" = shorebird ]; then
+    platforms=()
+    [ $((DO_PLAY + DO_AGC)) -eq 0 ] || platforms+=(android)
+    [ "$DO_ASC" = 0 ] || platforms+=(ios)
+    platform_list=$(IFS=,; echo "${platforms[*]}")
+    release_args=(release --platforms "$platform_list" --flutter-version system)
+    [ "$DO_AGC" = 0 ] || release_args+=(--artifact apk)
+    log 'building with Shorebird and registering the new store-release baseline; no store upload or OTA patch'
+    ( cd "$APP" && shorebird "${release_args[@]}" ) || die 'Shorebird release failed; inspect any partially registered baseline before retrying'
+  fi
 fi
 
 # ---------------------------------------------------------------- build what's needed
 
 build_artifact() { # <artifact> <flutter build target>
-  if [ "$MODE" = prepare ]; then
+  if [ "$MODE" = prepare ] && [ "$RUNTIME" = flutter ]; then
     log "building $2"
     ( cd "$APP" && flutter build "$2" --release ) || die "$2 build failed"
   fi
@@ -154,7 +175,7 @@ build_artifact() { # <artifact> <flutter build target>
 
 IPA=""
 if [ "$DO_ASC" = 1 ]; then
-  if [ "$MODE" = prepare ]; then
+  if [ "$MODE" = prepare ] && [ "$RUNTIME" = flutter ]; then
     log "building ipa (needs a valid signing setup in Xcode)"
     ( cd "$APP" && flutter build ipa --release ) || die "ipa build failed"
   fi
@@ -169,11 +190,12 @@ artifacts=()
 [ "$DO_PLAY" = 0 ] || artifacts+=("$AAB")
 [ "$DO_AGC" = 0 ] || artifacts+=("$APK")
 [ "$DO_ASC" = 0 ] || artifacts+=("$IPA")
+[ "$RUNTIME" != shorebird ] || artifacts+=("$APP/shorebird.yaml")
 MANIFEST="$APP/build/mobile-publish.json"
-IDENTITY="$PACKAGE|$BUNDLE|$VERSION|$DO_PLAY|$DO_AGC|$DO_ASC|$TRACK"
+IDENTITY="$PACKAGE|$BUNDLE|$VERSION|$DO_PLAY|$DO_AGC|$DO_ASC|$TRACK|$RUNTIME"
 if [ "$MODE" = prepare ]; then
   python3 "$(dirname "$0")/prepared_release.py" record "$MANIFEST" "$IDENTITY" "${artifacts[@]}" || die 'could not record prepared artifacts'
-  log 'prepared only; no upload performed. Inspect signatures, versions and runtime behavior, then use --upload-prepared with the same store/track.'
+  log 'prepared only; no store upload or OTA patch performed. Inspect signatures, versions and runtime behavior, then use --upload-prepared with the same store/track.'
   exit 0
 fi
 python3 "$(dirname "$0")/prepared_release.py" verify "$MANIFEST" "$IDENTITY" "${artifacts[@]}" || die 'prepared artifact verification failed'

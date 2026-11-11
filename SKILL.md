@@ -1,9 +1,28 @@
 ---
 name: mobile-publish
-description: Use for mobile store uploads, internal testing, TestFlight, release submission, signing failures, missing builds, store review rejections, or streamlining the mobile release and CI workflow.
+description: Use for mobile store uploads with or without Shorebird, Shorebird OTA patches, internal testing, TestFlight, release submission, signing failures, missing builds, store review rejections, or streamlining mobile releases and CI.
 ---
 
-# Publishing a mobile app to a store
+# Mobile publishing — standard builds and Shorebird
+
+## Choose the release path first
+
+Inspect the app module, `shorebird.yaml`, existing release scripts/CI and release records
+before choosing a builder. Keep the app's existing runtime and store identities.
+
+| App/request | Build and delivery path |
+|---|---|
+| App without Shorebird; store upload | Clean `flutter build`, inspect signed artifacts, upload to the requested stores. Do not initialize Shorebird. |
+| App with Shorebird; store upload/new version | Read [references/shorebird.md](references/shorebird.md), use `shorebird release`, inspect and upload its artifacts to the stores. Never rebuild them with plain Flutter. |
+| Explicit OTA/Shorebird patch request | Read [references/shorebird.md](references/shorebird.md), verify the exact existing Android **and** iOS releases, complete both dry runs and compatibility checks, then publish patches only when both pass. No store upload. |
+
+«ارفع على الماركت» means a store release even when the app uses Shorebird. A Shorebird
+configuration alone is not permission to publish a patch. A patch request does not authorize
+a store release or migration. Preserve existing project-specific flavor, entrypoint,
+defines, signing and pinned SDK choices; use its release workflow when the fallback below
+cannot represent them. If a configuration is declared but missing, restore it rather than
+silently building without Shorebird. Resolve genuinely ambiguous release/patch intent
+before any upload, using the user's wording and project instructions first.
 
 Every store release is the same four moves — produce a signed artifact, prove it is the
 *right* signed artifact, push it to a holding area, and hand back the list of things only
@@ -28,6 +47,11 @@ bash "$MOBILE_PUBLISH_SKILL_DIR/scripts/publish.sh" --store play --upload-prepar
 # --check inspects local tools/credentials without building or uploading.
 # Builds are always clean. --submit is supported only for --store agc.
 ```
+
+For apps with `shorebird.yaml`, the helper selects Shorebird automatically. Preparation
+registers a new baseline with Shorebird; it does **not** upload to a store or publish an
+OTA patch. Verify Shorebird app/release access first. It pins the builder to system Flutter;
+use the project's release workflow when another SDK or extra build flags are required.
 
 Use the actual loaded path for Claude Code or a custom installation. Do not change into
 the skill directory to run the publisher. Check the project's existing publishing setup
@@ -137,6 +161,9 @@ has. The stores count independently — Play at 42 and AppGallery at 3 is normal
 check against the target store, not against a number in the repo.
 
 ## Step 2 — Build
+
+The commands here are for apps **without** Shorebird. Shorebird apps use the release
+commands in [references/shorebird.md](references/shorebird.md) instead.
 
 ```bash
 flutter build appbundle --release    # Google Play

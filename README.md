@@ -11,6 +11,19 @@ per-project configuration.
 
 Maintained by [GAIT](https://gaitco.com).
 
+## Supported publishing paths
+
+- **Without Shorebird:** clean Flutter store builds, artifact inspection, then upload.
+- **With Shorebird:** a new market version is built with `shorebird release` and its exact
+  artifacts go to the stores. The helper detects `shorebird.yaml` automatically; preparing
+  registers a Shorebird baseline but performs no store upload or OTA publication.
+- **Explicit OTA request:** follow [the Shorebird workflow](references/shorebird.md).
+  Both Android and iOS must pass dry-run builds and native/asset compatibility checks
+  before either patch is published. An incompatible or unchecked platform blocks both.
+
+Asking to upload to a market selects a store release, including for Shorebird apps.
+It does not implicitly request an OTA patch or install Shorebird in a standard app.
+
 ## Why
 
 Every store release is the same four moves: produce a signed artifact, prove it is the *right*

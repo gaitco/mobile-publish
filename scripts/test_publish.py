@@ -150,6 +150,60 @@ exit "${ASC_TEST_EXIT:-0}"
         self.assertFalse(any(line.startswith('flutter ') for line in self.log.read_text().splitlines()))
         self.assertIn('builds upload', self.log.read_text())
 
+    def enable_shorebird(self):
+        (self.app / 'shorebird.yaml').write_text('app_id: fixture-app\n')
+        self.stub('shorebird', '''
+echo "shorebird $*" >> "$CALLS"
+mkdir -p build/ios/ipa build/app/outputs/bundle/release build/app/outputs/flutter-apk
+touch build/ios/ipa/fixture.ipa build/app/outputs/bundle/release/app-release.aab build/app/outputs/flutter-apk/app-release.apk
+exit "${SHOREBIRD_TEST_EXIT:-0}"
+''')
+
+    def test_shorebird_project_uses_shorebird_for_store_build(self):
+        self.enable_shorebird()
+        result = self.run_publish('--store', 'asc', '--prepare')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.log.read_text()
+        self.assertIn('shorebird release --platforms ios --flutter-version system', calls)
+        self.assertNotIn('flutter build', calls)
+        self.assertNotIn('builds upload', calls)
+
+    def test_shorebird_build_failure_never_falls_back_to_plain_flutter(self):
+        self.enable_shorebird()
+        self.env['SHOREBIRD_TEST_EXIT'] = '1'
+        result = self.run_publish('--store', 'asc', '--prepare')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('flutter build', self.log.read_text())
+        self.assertFalse((self.app / 'build/mobile-publish.json').exists())
+
+    def test_shorebird_config_change_invalidates_prepared_release(self):
+        self.enable_shorebird()
+        self.assertEqual(self.run_publish('--store', 'asc', '--prepare').returncode, 0)
+        (self.app / 'shorebird.yaml').write_text('app_id: another-app\n')
+        self.log.write_text('')
+        result = self.run_publish('--store', 'asc', '--upload-prepared')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.log.read_text(), '')
+
+    def test_shorebird_builds_both_android_formats_and_ios_together(self):
+        self.enable_shorebird()
+        key = self.root / 'credential.json'
+        key.write_text('{}')
+        self.env.update(PLAY_STORE_JSON_KEY=str(key), AGC_KEY_FILE=str(key))
+        self.stub('fastlane', 'exit 0\n')
+        result = self.run_publish('--prepare')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.log.read_text()
+        self.assertIn('shorebird release --platforms android,ios --flutter-version system --artifact apk', calls)
+        self.assertNotIn('flutter build', calls)
+
+    def test_missing_declared_shorebird_config_fails_before_build(self):
+        with (self.app / 'pubspec.yaml').open('a') as pubspec:
+            pubspec.write('flutter:\n  assets:\n    - shorebird.yaml\n')
+        result = self.run_publish('--store', 'asc', '--prepare')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.log.read_text(), '')
+
 
 if __name__ == '__main__':
     unittest.main()
