@@ -33,6 +33,10 @@ def quota_description(usage):
     fields = [position.get('installs'), position.get('included_installs'), position.get('remaining_installs')]
     if all(type(value) is int and value >= 0 for value in fields):
         detail = f'الكوتا المشتركة: {fields[0]} تثبيت patch مستخدم، {fields[1]} ضمن الخطة، {fields[2]} متبقٍ حتى الحد.'
+    elif (all(type(value) is int and value >= 0 for value in fields[:2])
+          and 'remaining_installs' in position and position['remaining_installs'] is None
+          and 'install_ceiling' in position and position['install_ceiling'] is None):
+        detail = f'الكوتا المشتركة: {fields[0]} تثبيت patch مستخدم، {fields[1]} ضمن الخطة. لا يوجد حد إيقاف محدد؛ هذا لا يعني تثبيتات مجانية بلا حدود.'
     else:
         detail = 'تفاصيل الكوتا المشتركة غير مكتملة؛ لا يمكن حساب تكلفة دقيقة.'
     costly = position.get('at_ceiling') is True or position.get('consuming_overage') is True

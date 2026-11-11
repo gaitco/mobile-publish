@@ -62,6 +62,15 @@ class UsageTests(unittest.TestCase):
             quota = {'position': {flag: True}}
             self.assertTrue(self.evaluate(20, quota))
 
+    def test_unlimited_stop_ceiling_still_reports_known_usage(self):
+        quota = {'position': {'installs': 1200, 'included_installs': 5000,
+                             'remaining_installs': None, 'install_ceiling': None,
+                             'at_ceiling': False, 'consuming_overage': False}}
+        message = self.evaluate(450, quota)
+        self.assertIn('1200', message)
+        self.assertIn('5000', message)
+        self.assertIn('لا يوجد حد إيقاف', message)
+
 
 if __name__ == '__main__':
     unittest.main()
